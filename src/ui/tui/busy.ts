@@ -88,6 +88,9 @@ export const THINKING_WORDS = [
   "I'll betcha a pair of truck nuts this is a bad idea…",
   "well now just slap my ass and call me Sally!…",
   "Guess I'll be a fixin things cuz you keep rekon em…",
+  "hootin an a hollerin'…",
+  "back in a jiffy…",
+  "tellin you what…",
   "BOHICA Y'all!…",
 ];
 
