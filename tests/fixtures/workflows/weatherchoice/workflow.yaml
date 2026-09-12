@@ -1,0 +1,176 @@
+schema_version: 1
+name: weatherchoice
+revision: 2
+description: Compare two city forecasts for cooler, rainy, and cloudy preferences.
+inputs:
+  type: object
+  additionalProperties: false
+  properties:
+    city_a:
+      type: string
+      minLength: 2
+    city_b:
+      type: string
+      minLength: 2
+  required: [city_a, city_b]
+secrets: {}
+permissions:
+  network:
+    - host: geocoding-api.open-meteo.com
+      methods: [GET]
+    - host: api.open-meteo.com
+      methods: [GET]
+  commands:
+    - program: bun
+      args_prefix: [run, ./scripts/location-query.ts]
+  model: true
+execution:
+  timeout: 5m
+steps:
+  - id: normalize
+    uses: command.run@1
+    allow_untrusted_input: true
+    with:
+      program: bun
+      args:
+        - run
+        - ./scripts/location-query.ts
+        - $inputs.city_a
+        - $inputs.city_b
+      output: json
+
+  - id: geocode-a
+    uses: http.request@1
+    retry:
+      attempts: 1
+      backoff: { initial: 500ms, multiplier: 2, maximum: 2s }
+      when: [timeout, connection_error, http_429, http_5xx]
+    with:
+      url: https://geocoding-api.open-meteo.com/v1/search
+      query:
+        name: $steps.normalize.output.stdout.city_a
+        count: 1
+        countryCode: US
+      expected_status: [200]
+      expected_content_type: application/json
+      response: json
+
+  - id: geocode-b
+    uses: http.request@1
+    retry:
+      attempts: 1
+      backoff: { initial: 500ms, multiplier: 2, maximum: 2s }
+      when: [timeout, connection_error, http_429, http_5xx]
+    with:
+      url: https://geocoding-api.open-meteo.com/v1/search
+      query:
+        name: $steps.normalize.output.stdout.city_b
+        count: 1
+        countryCode: US
+      expected_status: [200]
+      expected_content_type: application/json
+      response: json
+
+  - id: location-a
+    uses: data.select@1
+    with:
+      value: $steps.geocode-a.output.body
+      pointer: /results/0
+
+  - id: location-b
+    uses: data.select@1
+    with:
+      value: $steps.geocode-b.output.body
+      pointer: /results/0
+
+  - id: weather-a
+    uses: http.request@1
+    retry:
+      attempts: 1
+      backoff: { initial: 500ms, multiplier: 2, maximum: 2s }
+      when: [timeout, connection_error, http_429, http_5xx]
+    with:
+      url: https://api.open-meteo.com/v1/forecast
+      query:
+        latitude: $steps.location-a.output.latitude
+        longitude: $steps.location-a.output.longitude
+        daily: temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code
+        temperature_unit: fahrenheit
+        timezone: auto
+      expected_status: [200]
+      expected_content_type: application/json
+      response: json
+
+  - id: weather-b
+    uses: http.request@1
+    retry:
+      attempts: 1
+      backoff: { initial: 500ms, multiplier: 2, maximum: 2s }
+      when: [timeout, connection_error, http_429, http_5xx]
+    with:
+      url: https://api.open-meteo.com/v1/forecast
+      query:
+        latitude: $steps.location-b.output.latitude
+        longitude: $steps.location-b.output.longitude
+        daily: temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code
+        temperature_unit: fahrenheit
+        timezone: auto
+      expected_status: [200]
+      expected_content_type: application/json
+      response: json
+
+  - id: compare
+    uses: llm.generate@1
+    with:
+      prompt: >-
+        Compare the two supplied seven-day forecasts. Describe both locations and
+        choose the better match for a person who prefers cooler temperatures,
+        precipitation, and cloudy weather. Use only the supplied forecast fields.
+        Weather codes are WMO weather interpretation codes. Keep the description
+        concise and make the choice unambiguous.
+      input:
+        requested_city_a: $inputs.city_a
+        matched_location_a: $steps.location-a.output
+        forecast_a: $steps.weather-a.output.body
+        requested_city_b: $inputs.city_b
+        matched_location_b: $steps.location-b.output
+        forecast_b: $steps.weather-b.output.body
+      output_schema:
+        type: object
+        additionalProperties: false
+        properties:
+          description:
+            type: string
+            minLength: 1
+          choice:
+            type: string
+            minLength: 1
+        required: [description, choice]
+
+  - id: render
+    uses: text.template@1
+    with:
+      template: "{{description}}\n\nMore comfortable: {{choice}}"
+      data: $steps.compare.output
+
+outputs:
+  result:
+    value: $steps.compare.output
+    schema:
+      type: object
+      additionalProperties: false
+      properties:
+        description:
+          type: string
+          minLength: 1
+        choice:
+          type: string
+          minLength: 1
+      required: [description, choice]
+  summary:
+    value: $steps.render.output
+    schema:
+      type: string
+
+presentation:
+  output: summary

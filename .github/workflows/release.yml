@@ -1,0 +1,139 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - name: Verify tag matches package.json version
+        run: bun scripts/check-version.ts
+      - name: Check third-party notices
+        run: bun run licenses:check
+
+  build-linux:
+    needs: verify
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [bun-linux-x64, bun-linux-arm64]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - name: Build ${{ matrix.target }}
+        env:
+          CLEETUS_TARGET: ${{ matrix.target }}
+        run: bun run build
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: ${{ matrix.target }}
+          path: dist/cleetus-*
+          if-no-files-found: error
+
+  build-macos:
+    needs: verify
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [bun-darwin-arm64, bun-darwin-x64]
+    env:
+      CLEETUS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+
+      - name: Import signing certificate into a throwaway keychain
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/build.keychain"
+          KEYCHAIN_PW="$(uuidgen)"
+          echo "$MACOS_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+            -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PW" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain
+          rm "$RUNNER_TEMP/cert.p12"
+
+      - name: Build + sign ${{ matrix.target }}
+        env:
+          CLEETUS_TARGET: ${{ matrix.target }}
+        run: bun run build
+
+      - name: Notarize ${{ matrix.target }}
+        env:
+          MATRIX_TARGET: ${{ matrix.target }}
+          AC_API_KEY_P8_BASE64: ${{ secrets.AC_API_KEY_P8_BASE64 }}
+          AC_API_KEY_ID: ${{ secrets.AC_API_KEY_ID }}
+          AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
+        run: |
+          echo "$AC_API_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/ac_key.p8"
+          export AC_API_KEY_PATH="$RUNNER_TEMP/ac_key.p8"
+          # Asset name mirrors scripts/targets.ts assetName(): cleetus-<arch>.
+          ASSET="cleetus-${MATRIX_TARGET#bun-}"
+          bun scripts/notarize.ts "dist/$ASSET"
+          rm "$RUNNER_TEMP/ac_key.p8"
+
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: ${{ matrix.target }}
+          path: dist/cleetus-*
+          if-no-files-found: error
+
+  release:
+    needs: [build-linux, build-macos]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          path: artifacts
+      - name: Collect binaries + generate checksums
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          find artifacts -type f -name 'cleetus-*' -exec cp {} dist/ \;
+          cd dist
+          count=$(ls cleetus-* | wc -l | tr -d ' ')
+          if [ "$count" -ne 4 ]; then
+            echo "expected 4 release binaries, found $count — refusing to publish a partial release:" >&2
+            ls -1 cleetus-* >&2 || true
+            exit 1
+          fi
+          shasum -a 256 cleetus-* > checksums.txt
+          echo "=== checksums.txt ==="
+          cat checksums.txt
+      - uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
+        with:
+          files: |
+            dist/cleetus-*
+            dist/checksums.txt
+            install.sh
+            LICENSE
+            THIRD_PARTY_NOTICES.txt
+            ACKNOWLEDGEMENTS.md
+          generate_release_notes: true

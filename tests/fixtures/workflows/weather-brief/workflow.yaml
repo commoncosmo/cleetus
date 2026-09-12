@@ -1,0 +1,49 @@
+schema_version: 1
+name: weather-brief
+revision: 1
+description: Fetch and summarize the Wilmette weather
+inputs:
+  type: object
+  additionalProperties: false
+permissions:
+  network:
+    - host: api.open-meteo.com
+      methods: [GET]
+  model: true
+execution:
+  timeout: 1m
+steps:
+  - id: forecast
+    uses: http.request@1
+    timeout: 10s
+    with:
+      url: https://api.open-meteo.com/v1/forecast
+      query:
+        latitude: 42.07225
+        longitude: -87.72284
+        hourly: temperature_2m
+        temperature_unit: fahrenheit
+      response: json
+  - id: summarize
+    uses: llm.generate@1
+    timeout: 30s
+    with:
+      prompt: Summarize the forecast as exactly three concise bullet strings.
+      input: $steps.forecast.output.body
+      output_schema:
+        type: array
+        minItems: 3
+        maxItems: 3
+        items: { type: string }
+      repair_attempts: 1
+  - id: render
+    uses: text.template@1
+    with:
+      template: "{{#each bullets}}- {{this}}\n{{/each}}"
+      data:
+        bullets: $steps.summarize.output
+outputs:
+  brief:
+    value: $steps.render.output
+    schema: { type: string }
+presentation: { output: brief }

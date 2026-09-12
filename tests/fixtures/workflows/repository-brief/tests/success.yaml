@@ -1,0 +1,39 @@
+schema_version: 1
+name: renders selected and validated repository metadata
+mode: mock
+inputs:
+  username: oven-sh
+  repo_name: bun
+mocks:
+  fetch-repository:
+    output:
+      status: 200
+      content_type: application/json
+      final_url: https://api.github.com/repos/oven-sh/bun
+      body:
+        full_name: oven-sh/bun
+        description: The all-in-one JavaScript runtime.
+        language: Zig
+        stargazers_count: 100
+        forks_count: 10
+        open_issues_count: 5
+        default_branch: main
+        ignored_remote_field: not presented
+expect:
+  status: succeeded
+  outputs:
+    brief: |
+      ## oven-sh/bun
+
+      The all-in-one JavaScript runtime.
+
+      - Primary language: Zig
+      - Stars: 100
+      - Forks: 10
+      - Open issues: 5
+      - Default branch: main
+  attempts:
+    fetch-repository: 1
+    select-body: 1
+    validate-repository: 1
+    render-brief: 1

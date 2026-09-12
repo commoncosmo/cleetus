@@ -1,0 +1,2 @@
+prompt: Create a file named hello.txt whose entire contents are the single word world (no trailing newline).
+check: test "$(cat hello.txt)" = world

@@ -1,0 +1,73 @@
+schema_version: 1
+name: repository-brief
+revision: 1
+description: Fetch and render a public GitHub repository brief
+inputs:
+  type: object
+  required: [username, repo_name]
+  properties:
+    username: { type: string, minLength: 1 }
+    repo_name: { type: string, minLength: 1 }
+  additionalProperties: false
+permissions:
+  network:
+    - host: api.github.com
+      methods: [GET]
+execution:
+  timeout: 1m
+steps:
+  - id: fetch-repository
+    uses: http.request@1
+    timeout: 15s
+    with:
+      url: "https://api.github.com/repos/${inputs.username}/${inputs.repo_name}"
+      method: GET
+      response: json
+  - id: select-body
+    uses: data.select@1
+    with:
+      value: $steps.fetch-repository.output
+      pointer: /body
+  - id: validate-repository
+    uses: assert.schema@1
+    with:
+      value: $steps.select-body.output
+      schema:
+        type: object
+        required:
+          - full_name
+          - description
+          - language
+          - stargazers_count
+          - forks_count
+          - open_issues_count
+          - default_branch
+        properties:
+          full_name: { type: string, minLength: 1 }
+          description:
+            anyOf: [{ type: string }, { type: "null" }]
+          language:
+            anyOf: [{ type: string }, { type: "null" }]
+          stargazers_count: { type: integer, minimum: 0 }
+          forks_count: { type: integer, minimum: 0 }
+          open_issues_count: { type: integer, minimum: 0 }
+          default_branch: { type: string, minLength: 1 }
+  - id: render-brief
+    uses: text.template@1
+    with:
+      template: |
+        ## {{full_name}}
+
+        {{description}}
+
+        - Primary language: {{language}}
+        - Stars: {{stargazers_count}}
+        - Forks: {{forks_count}}
+        - Open issues: {{open_issues_count}}
+        - Default branch: {{default_branch}}
+      data: $steps.validate-repository.output
+outputs:
+  brief:
+    value: $steps.render-brief.output
+    schema: { type: string }
+presentation: { output: brief }

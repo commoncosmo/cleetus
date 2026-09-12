@@ -1,0 +1,29 @@
+schema_version: 1
+name: three-bullet weather brief
+mode: mock
+inputs: {}
+mocks:
+  forecast:
+    output:
+      status: 200
+      content_type: application/json
+      final_url: https://api.open-meteo.com/v1/forecast
+      body:
+        hourly:
+          temperature_2m: [32, 40, 45]
+  summarize:
+    output:
+      - Cold this morning
+      - Milder this afternoon
+      - Dry all day
+expect:
+  status: succeeded
+  outputs:
+    brief: |
+      - Cold this morning
+      - Milder this afternoon
+      - Dry all day
+  attempts:
+    forecast: 1
+    summarize: 1
+    render: 1

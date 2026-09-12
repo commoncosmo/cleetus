@@ -1,0 +1,85 @@
+schema_version: 1
+name: compares two city forecasts
+mode: mock
+inputs:
+  city_a: Wilmette, IL
+  city_b: Washington, DC
+mocks:
+  normalize:
+    output:
+      stdout:
+        city_a: Wilmette
+        city_b: Washington
+      stderr: ""
+      exit_code: 0
+      survivors: []
+  geocode-a:
+    output:
+      status: 200
+      content_type: application/json
+      final_url: https://geocoding-api.open-meteo.com/v1/search?name=Wilmette
+      body:
+        results:
+          - name: Wilmette
+            admin1: Illinois
+            latitude: 42.07225
+            longitude: -87.72284
+  geocode-b:
+    output:
+      status: 200
+      content_type: application/json
+      final_url: https://geocoding-api.open-meteo.com/v1/search?name=Washington
+      body:
+        results:
+          - name: Washington D.C.
+            admin1: District of Columbia
+            latitude: 38.89511
+            longitude: -77.03637
+  weather-a:
+    output:
+      status: 200
+      content_type: application/json
+      final_url: https://api.open-meteo.com/v1/forecast
+      body:
+        daily:
+          time: [2026-07-27, 2026-07-28]
+          temperature_2m_max: [81, 71]
+          temperature_2m_min: [72, 66]
+          precipitation_sum: [59.4, 0]
+          weather_code: [82, 45]
+  weather-b:
+    output:
+      status: 200
+      content_type: application/json
+      final_url: https://api.open-meteo.com/v1/forecast
+      body:
+        daily:
+          time: [2026-07-27, 2026-07-28]
+          temperature_2m_max: [91, 89]
+          temperature_2m_min: [75, 73]
+          precipitation_sum: [0, 0]
+          weather_code: [1, 2]
+  compare:
+    output:
+      description: Wilmette is cooler and has substantially more precipitation than Washington.
+      choice: Wilmette, IL
+expect:
+  status: succeeded
+  outputs:
+    result:
+      description: Wilmette is cooler and has substantially more precipitation than Washington.
+      choice: Wilmette, IL
+    summary: |-
+      Wilmette is cooler and has substantially more precipitation than Washington.
+
+      More comfortable: Wilmette, IL
+  attempts:
+    normalize: 1
+    geocode-a: 1
+    geocode-b: 1
+    location-a: 1
+    location-b: 1
+    weather-a: 1
+    weather-b: 1
+    compare: 1
+    render: 1

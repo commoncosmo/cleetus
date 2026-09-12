@@ -1,0 +1,25 @@
+name: installer
+
+on:
+  push:
+    paths:
+      - "install.sh"
+      - "tests/installer/**"
+      - ".github/workflows/installer.yml"
+  pull_request:
+    paths:
+      - "install.sh"
+      - "tests/installer/**"
+      - ".github/workflows/installer.yml"
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: ShellCheck install.sh
+        run: shellcheck install.sh
+      - name: Install bats
+        run: sudo apt-get update && sudo apt-get install -y bats=1.10.0-1
+      - name: Run installer tests
+        run: bats tests/installer/

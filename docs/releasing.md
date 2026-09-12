@@ -1,0 +1,113 @@
+# Releasing cleetus
+
+Pushing a `v*` tag triggers `.github/workflows/release.yml`, which cross-compiles four
+binaries, signs + notarizes the macOS ones, and publishes a GitHub Release with checksums.
+
+## One-time setup
+
+### 1. App Store Connect API key (for notarization)
+1. App Store Connect → Users and Access → Integrations → App Store Connect API.
+2. Generate a key with the **Developer** role.
+3. Download `AuthKey_XXXX.p8` — **offered exactly once**. Note the **Key ID** and **Issuer ID**.
+
+### 2. Export the Developer ID signing identity
+```bash
+security export -k login.keychain-db -t identities -f pkcs12 \
+  -P 'CHOOSE_AN_EXPORT_PASSWORD' -o cleetus-signing.p12
+```
+
+### 3. Add six repository secrets
+Settings → Secrets and variables → Actions:
+
+| Secret | Value |
+| --- | --- |
+| `MACOS_CERT_P12_BASE64` | `base64 -i cleetus-signing.p12` |
+| `MACOS_CERT_PASSWORD` | the `.p12` export password from step 2 |
+| `MACOS_SIGNING_IDENTITY` | the full `Developer ID Application: …` signing identity |
+| `AC_API_KEY_P8_BASE64` | `base64 -i AuthKey_XXXX.p8` |
+| `AC_API_KEY_ID` | Key ID from step 1 |
+| `AC_API_ISSUER_ID` | Issuer ID from step 1 |
+
+`CLEETUS_SIGN_IDENTITY` comes from the `MACOS_SIGNING_IDENTITY` repository secret, so the
+workflow contains no organization-specific certificate identity.
+
+## Local dry run (recommended before the first tag)
+
+Validate the cert + API key + scripts on your Mac before spending a CI run. Run this in a
+real **Terminal.app** window (a GUI login session) — `codesign`'s Developer ID trust
+evaluation needs it. Use `export` lines, not an inline `VAR=… \` prefix: if the line
+continuations are lost on paste, the vars never reach `bun run build` and you silently get an
+unsigned host build (`dist/cleetus`, no `-darwin-arm64` suffix).
+
+**Half 1 — build + sign:**
+```bash
+export CLEETUS_TARGET=bun-darwin-arm64
+export CLEETUS_SIGN_IDENTITY="Developer ID Application: <Your Team Name> (<TEAM_ID>)"
+bun run build
+```
+First sign pops a Keychain prompt — click **Always Allow**. Confirm the result:
+```bash
+codesign -d --verbose=4 dist/cleetus-darwin-arm64 2>&1 | grep -iE 'Authority|flags'
+```
+Want to see `flags=0x10000(runtime)`, `Authority=Developer ID Application…`,
+`Authority=Developer ID Certification Authority`, `Authority=Apple Root CA`.
+
+**Half 2 — notarize** (same shell, so `CLEETUS_*` stay exported):
+```bash
+export AC_API_KEY_PATH=/path/to/AuthKey_XXXX.p8
+export AC_API_KEY_ID=...
+export AC_API_ISSUER_ID=...
+bun scripts/notarize.ts dist/cleetus-darwin-arm64
+```
+Success = Apple returns `status: Accepted` and the script prints `notarized …`. Green locally
+means CI (same commands + a keychain-import prelude) will work.
+
+## Troubleshooting
+
+**`codesign` fails: `unable to build chain to self-signed root` / `errSecInternalComponent`.**
+Your Developer ID *leaf* cert is installed but an Apple **intermediate** in its chain is missing
+from the Keychain, so `codesign` can't build leaf → *Developer ID Certification Authority (G2)*
+→ *Apple Root CA*. `security find-identity -v` still lists the identity as valid (it only checks
+the leaf + private key), which is why this is surprising. The binary falls back to an `adhoc`
+signature (`codesign -d` shows `flags=0x2(adhoc)`).
+
+Fix — install the missing Apple intermediates, easiest first:
+1. **Xcode** (most thorough): launch it once; it installs/refreshes the full Apple intermediate
+   and WWDR cert set. This is what resolved it during initial setup.
+2. **Manual**: download the *Developer ID – G2* intermediate from
+   <https://www.apple.com/certificateauthority/> (`DeveloperIDG2CA.cer`) and double-click to
+   install into the login keychain. (A single download may not cover every intermediate your
+   cert needs — Xcode is the reliable path.)
+
+Verify the chain is whole afterward: `codesign -d --verbose=4 <binary>` should list all three
+`Authority=` lines (leaf, Developer ID Certification Authority, Apple Root CA) and
+`flags=0x10000(runtime)`.
+
+**`notarize.ts` reports a rejection.** It prints Apple's verdict plus a submission `id`. For the
+line-level reason, run
+`xcrun notarytool log <id> --key "$AC_API_KEY_PATH" --key-id "$AC_API_KEY_ID" --issuer "$AC_API_ISSUER_ID"`.
+The most common cause is a binary signed without hardened runtime (`flags` missing `runtime`).
+
+## Cutting a release
+
+1. Bump `version` in `package.json` (e.g. to `0.1.1`) and commit.
+2. Tag and push:
+   ```bash
+   git tag v0.1.1     # MUST match package.json or the workflow fails fast
+   git push origin v0.1.1
+   ```
+3. Watch the Actions run. On success, a Release appears with:
+   `cleetus-linux-x64`, `cleetus-linux-arm64`, `cleetus-darwin-arm64`, `cleetus-darwin-x64`,
+   `checksums.txt`, and `install.sh` (the curl|bash installer, also served from `main`).
+
+For the very first run, use a prerelease tag (e.g. `v0.1.1-rc.1`) you can inspect and delete
+before cutting the real `v0.1.1`.
+
+## Notes
+
+- **macOS notarization isn't stapled** to the bare binary (a Mach-O can't carry a stapled
+  ticket). Gatekeeper does an online check on first run for browser-downloaded copies;
+  `curl`-installed binaries are typically never quarantined and run without a prompt.
+- The tag is the source of truth for the version; `package.json` must agree or the build fails.
+- Third-party actions in `release.yml` are pinned to commit SHAs; bump them deliberately
+  (with the version in the trailing comment) when updating.
