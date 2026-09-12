@@ -91,6 +91,7 @@ export const THINKING_WORDS = [
   "hootin an a hollerin'…",
   "back in a jiffy…",
   "tellin you what…",
+  "playin Edward fortyhands…",
   "BOHICA Y'all!…",
 ];
 
