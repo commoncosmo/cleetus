@@ -92,6 +92,8 @@ export const THINKING_WORDS = [
   "back in a jiffy…",
   "tellin you what…",
   "playin Edward fortyhands…",
+  "sippin a montain dew…",
+  "packin my chaw…",
   "BOHICA Y'all!…",
 ];
 
