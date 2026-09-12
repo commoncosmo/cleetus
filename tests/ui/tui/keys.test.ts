@@ -1,11 +1,19 @@
 import { describe, expect, it } from "bun:test";
-import { isClearInputKey, isNewlineKey } from "../../../src/ui/tui/keys";
+import { isClearInputKey, isNewlineKey, isToggleReasoningKey } from "../../../src/ui/tui/keys";
 
 describe("isClearInputKey", () => {
   it("recognizes Ctrl+C without treating a typed c as clear", () => {
     expect(isClearInputKey("c", { ctrl: true })).toBe(true);
     expect(isClearInputKey("c", {})).toBe(false);
     expect(isClearInputKey("x", { ctrl: true })).toBe(false);
+  });
+});
+
+describe("isToggleReasoningKey", () => {
+  it("recognizes Ctrl+R without treating a typed r as a shortcut", () => {
+    expect(isToggleReasoningKey("r", { ctrl: true })).toBe(true);
+    expect(isToggleReasoningKey("r", {})).toBe(false);
+    expect(isToggleReasoningKey("R", { ctrl: true })).toBe(false);
   });
 });
 

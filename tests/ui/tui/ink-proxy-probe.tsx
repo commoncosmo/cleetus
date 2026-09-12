@@ -296,12 +296,50 @@ async function computedReserveKeepsLiveRegionUnderViewport() {
   );
 }
 
+/** The reasoning header is stable and starts compact; Ctrl+R's state flip reveals its bounded tail. */
+async function reasoningPanelStartsCollapsed() {
+  const model = seedHistory([], true, false);
+  const live = { callId: "c1", reasoning: "first thought\nsecond thought", prose: "" };
+
+  const renderReasoning = async (reasoningExpanded: boolean): Promise<string> => {
+    const tty = fakeTty();
+    const app = render(
+      <History
+        model={model}
+        sessionKey="s"
+        liveStream={live}
+        streamingEnabled={true}
+        reasoningEnabled={true}
+        reasoningExpanded={reasoningExpanded}
+        reasoningLines={10}
+      />,
+      { stdout: asStdout(tty), patchConsole: false },
+    );
+    await settle(50);
+    app.unmount();
+    return tty.writes.join("");
+  };
+
+  const collapsed = await renderReasoning(false);
+  assert.ok(
+    collapsed.includes("◌ thinking"),
+    "live reasoning must use the stable hollow-dot marker",
+  );
+  assert.ok(collapsed.includes("ctrl+r to expand"), "collapsed header must advertise its toggle");
+  assert.ok(!collapsed.includes("first thought"), "collapsed reasoning must hide its tail");
+
+  const expanded = await renderReasoning(true);
+  assert.ok(expanded.includes("ctrl+r to collapse"), "expanded header must advertise its toggle");
+  assert.ok(expanded.includes("first thought"), "expanded reasoning must show its tail");
+}
+
 try {
   await framesAreAtomic();
   await dimensionsAndResize();
   await unsizedPtyDoesNotClear();
   await finishedAnswerCommitsAndDoesNotClear();
   await computedReserveKeepsLiveRegionUnderViewport();
+  await reasoningPanelStartsCollapsed();
   process.exit(0);
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));

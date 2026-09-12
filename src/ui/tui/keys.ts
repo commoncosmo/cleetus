@@ -10,6 +10,11 @@ export function isClearInputKey(input: string, key: KeyFlags): boolean {
   return input === "c" && key.ctrl === true;
 }
 
+/** Ctrl+R toggles the live reasoning tail without inserting text into the prompt. */
+export function isToggleReasoningKey(input: string, key: KeyFlags): boolean {
+  return input === "r" && key.ctrl === true;
+}
+
 /**
  * Detect a "newline, don't submit" keypress across terminal encodings, given what
  * Ink's useInput actually hands us:

@@ -97,6 +97,7 @@ import { type HistoryModel, advanceHistory, seedHistory, settlePending } from ".
 import { Input, type InputSeed } from "./input";
 import { type InputGateFlags, inputDisabled } from "./input-gate";
 import { enqueue, queuedLine, resolveBoundary } from "./input-queue";
+import { isToggleReasoningKey } from "./keys";
 import { ModePickerModal } from "./mode-picker-modal";
 import { ModelPickerModal } from "./model-picker-modal";
 import { formatModelRoster } from "./model-roster";
@@ -640,6 +641,15 @@ export function App(props: AppProps) {
   const liveRef = useRef<LiveStream>({ callId: null, reasoning: "", prose: "" });
   const liveDirtyRef = useRef(false);
   const [liveStream, setLiveStream] = useState<LiveStream>(liveRef.current);
+  // The live tail starts collapsed for every model call; Ctrl+R expands it for the active call.
+  const [reasoningExpanded, setReasoningExpanded] = useState(false);
+  const reasoningCallRef = useRef<string | null>(liveRef.current.callId);
+
+  useEffect(() => {
+    if (liveStream.callId === reasoningCallRef.current) return;
+    reasoningCallRef.current = liveStream.callId;
+    setReasoningExpanded(false);
+  }, [liveStream.callId]);
 
   // The editor starts from a passive effect so React first commits the render
   // that unmounts Input. That releases Ink's raw-mode listener before the child
@@ -1907,6 +1917,19 @@ export function App(props: AppProps) {
     restoreOpen,
   } satisfies InputGateFlags;
 
+  const liveReasoningActive = Boolean(
+    (props.reasoningEnabled ?? true) && liveStream.reasoning.length > 0,
+  );
+
+  // Ctrl+R expands/collapses only the in-flight reasoning tail. It stays out of the input buffer,
+  // and the per-call reset above means every new thinking window starts compact.
+  useInput(
+    (input, key) => {
+      if (isToggleReasoningKey(input, key)) setReasoningExpanded((expanded) => !expanded);
+    },
+    { isActive: !inputDisabled(gateFlags) && liveReasoningActive },
+  );
+
   // ^t unfolds the tracker into the full checklist, and nothing else — it is read-only. Gated on
   // the same condition as the input, so a permission prompt or picker keeps the keyboard.
   useInput(
@@ -2087,7 +2110,7 @@ export function App(props: AppProps) {
   });
   const liveBudget = liveWindowBudget(rows, {
     proseActive,
-    reasoningCap: props.reasoningLines ?? 10,
+    reasoningCap: reasoningExpanded ? (props.reasoningLines ?? 10) : 0,
     proseCap: props.proseLines ?? 12,
     reserve,
   });
@@ -2101,6 +2124,7 @@ export function App(props: AppProps) {
         streamingEnabled={props.streamingEnabled ?? true}
         reasoningEnabled={props.reasoningEnabled ?? true}
         reasoningLines={liveBudget.reasoningLines}
+        reasoningExpanded={reasoningExpanded}
         proseLines={liveBudget.proseLines}
       />
       {busy && !editorRequest && !prompt && !workflowPrompt && !workflowInput && (

@@ -1,18 +1,10 @@
 /**
- * Glyphs for the live reasoning indicator. While the model is thinking, the live header cycles
- * through a quadrant spinner; once the reasoning block commits, the marker shows a solid static
- * dot. All frames are single-width so the indicator never shifts the layout (unlike the wide 💭
- * emoji it replaces — see issue #132).
+ * Stable glyphs for reasoning. The turn-level busy indicator owns the only animation; keeping
+ * this marker still prevents two competing motion sources while the model is thinking.
  */
 
-/** Quadrant spinner frames cycled in the live "thinking…" header. Single-width. */
-export const SPINNER_FRAMES = ["◐", "◓", "◑", "◒"] as const;
+/** Hollow dot shown while the reasoning panel is live. Single-width and static. */
+export const THINKING_LIVE_GLYPH = "◌";
 
 /** Solid dot shown on the committed marker once thinking is complete. */
 export const THINKING_DONE_GLYPH = "●";
-
-/** The spinner frame for a given tick, wrapping around (and tolerant of negative ticks). Pure. */
-export function spinnerFrame(tick: number): string {
-  const n = SPINNER_FRAMES.length;
-  return SPINNER_FRAMES[((tick % n) + n) % n] as string;
-}
