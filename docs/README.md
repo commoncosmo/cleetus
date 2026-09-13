@@ -28,8 +28,6 @@ reference, and contributor documentation.
 
 ## Project documentation
 
-- [Roadmap](roadmap.md)
-- [Public release checklist](public-release-checklist.md)
 - [Release process](releasing.md)
 
 The user guides describe supported behavior. Current source and tests are authoritative when a

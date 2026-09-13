@@ -15,7 +15,7 @@ permissions, workflows, skills, and session data under your control.
 
 Pre-1.0 and under active development. The main CLI, TUI, and ACP surfaces are implemented and
 covered by automated tests, but configuration and user-facing behavior may still change before a
-stable 1.0 release. See the [roadmap](docs/roadmap.md) for current priorities and future work.
+stable 1.0 release.
 
 ## Install
 
