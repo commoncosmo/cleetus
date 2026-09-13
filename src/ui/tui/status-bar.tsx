@@ -24,11 +24,18 @@ export interface StatusBarProps {
   personality?: string;
   /** Active launch scope (global/scratch); hidden in normal project mode. */
   launchScope?: "global" | "scratch";
+  /** Selected execution boundary, e.g. "Sandbox: Seatbelt". */
+  sandboxStatus?: string;
 }
 
 /** Status-bar tag for the active launch scope; empty in normal project mode. */
 export function formatScopeTag(label?: "global" | "scratch"): string {
   return label ? ` · ${label}` : "";
+}
+
+/** Status-bar tag for the selected execution boundary. */
+export function formatSandboxTag(status?: string): string {
+  return status ? ` · ${status}` : "";
 }
 
 /** Quiet chrome below the prompt — informational items on the left, state on the right. */
@@ -43,6 +50,7 @@ export function StatusBar({
   persona,
   personality,
   launchScope,
+  sandboxStatus,
 }: StatusBarProps) {
   const t = useTheme();
   // Counters animate up to each new authoritative total instead of snapping.
@@ -61,6 +69,7 @@ export function StatusBar({
             ? ` · route:${route.mode}${route.tier ? `(${route.tier})` : ""}`
             : ""}
           {formatScopeTag(launchScope)}
+          {formatSandboxTag(sandboxStatus)}
         </Text>
         {planMode ? <Text color={t.accent}>◇ plan </Text> : null}
         {fuckit ? <Text color={t.error}>⚠ fuckit </Text> : null}

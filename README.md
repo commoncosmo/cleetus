@@ -792,8 +792,11 @@ For disaster recovery, event records and Git checkpoint objects are mirrored out
 project beneath `~/.config/cleetus/recovery/<project>-<path-hash>/`. Deleting the work tree therefore
 cannot also destroy the only forensic trail and pre-turn snapshot.
 
-On Linux, `host` needs bubblewrap: `apt install bubblewrap` (or your distro's package). If
-it is missing, cleetus logs a one-time warning and falls back to `none`.
+On Linux, `host` needs bubblewrap: `apt install bubblewrap` (or your distro's package). Cleetus
+also runs a harmless startup health check through the selected Seatbelt/bubblewrap wrapper. If the
+binary is missing or the wrapper cannot start (for example, Linux user namespaces are disabled),
+cleetus logs the reason and falls back to `none`. The interactive footer always names the active
+backend, such as `Sandbox: Seatbelt`, `Sandbox: bubblewrap`, or `Sandbox: none (degraded)`.
 
 **`docker` (opt-in).** Use when you deliberately want a separate, reproducible Linux
 environment. Set `sandbox.image` (defaults to `oven/bun:1` if omitted). Note: on macOS and

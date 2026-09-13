@@ -25,7 +25,7 @@ import { cleanupWorkspace, prepareWorkspace } from "./workspace";
 export interface RunnerDeps {
   providers: ProviderRegistry;
   sandboxConfig: SandboxConfig;
-  makeSandbox: (cfg: SandboxConfig, dir: string) => Sandbox;
+  makeSandbox: (cfg: SandboxConfig, dir: string) => Sandbox | Promise<Sandbox>;
   baseline: {
     systemPrompt: string;
     active: ModelChoice;
@@ -68,7 +68,7 @@ export async function runCandidate(
   let checkExitCode: number | null = null;
 
   try {
-    sandbox = deps.makeSandbox(deps.sandboxConfig, tempDir);
+    sandbox = await deps.makeSandbox(deps.sandboxConfig, tempDir);
     const tools = buildEvalTools(sandbox, candidate.tools);
     const dispatcher = new ToolDispatcher(tools);
     const router = createRouter({

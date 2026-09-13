@@ -255,7 +255,7 @@ export async function buildWorkflowService(input: {
     }
     defaultProvider = config.defaultProvider ?? providers.names()[0];
     defaultModel = config.defaultModel;
-    sandbox = createSandbox(config.sandbox, input.projectDir);
+    sandbox = await createSandbox(config.sandbox, input.projectDir);
     ownsSandbox = true;
   }
   const modelCalls = new WorkflowModelCallService((name) => providers.get(name));
