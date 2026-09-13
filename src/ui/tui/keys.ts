@@ -15,6 +15,11 @@ export function isToggleReasoningKey(input: string, key: KeyFlags): boolean {
   return input === "r" && key.ctrl === true;
 }
 
+/** Ctrl+E expands/collapses details for the latest failed test/check. */
+export function isToggleTestDetailsKey(input: string, key: KeyFlags): boolean {
+  return input === "e" && key.ctrl === true;
+}
+
 /**
  * Detect a "newline, don't submit" keypress across terminal encodings, given what
  * Ink's useInput actually hands us:
