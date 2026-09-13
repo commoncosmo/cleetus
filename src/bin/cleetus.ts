@@ -107,7 +107,7 @@ import { gateVision } from "../providers/vision";
 import { buildRepoMap } from "../repomap/build";
 import { truncateMapToBudget } from "../repomap/render";
 import { unconfinedSandboxNotice } from "../sandbox/boundary";
-import { createSandboxWithInfo } from "../sandbox/factory";
+import { createSandboxWithInfo, sandboxStatus } from "../sandbox/factory";
 import { spawnCollect } from "../sandbox/spawn";
 import { isSecretPath } from "../security/secret-paths";
 import { firstRunSetup } from "../setup/first-run";
@@ -491,7 +491,11 @@ async function main(argv: string[]): Promise<number> {
     return 1;
   }
 
-  const { sandbox, degraded: sandboxDegraded } = createSandboxWithInfo(config.sandbox, projectDir);
+  const {
+    sandbox,
+    degraded: sandboxDegraded,
+    backend: sandboxBackend,
+  } = await createSandboxWithInfo(config.sandbox, projectDir);
   let requestWorkflowAuthorization: RequestWorkflowAuthorization = async () => "deny";
   let collectWorkflowInputs: (request: {
     workflow: string;
@@ -2241,6 +2245,7 @@ async function main(argv: string[]): Promise<number> {
         getPlanContext,
         projectDir,
         launchScope: scope.label,
+        sandboxStatus: sandboxStatus(sandboxBackend, sandboxDegraded),
       }),
     ),
     // Ctrl+C belongs to the prompt editor (clear input). `/quit` remains the

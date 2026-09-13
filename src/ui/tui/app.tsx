@@ -260,6 +260,8 @@ export interface AppProps {
   listProjectDir?: () => string[];
   /** Active launch scope (global/scratch), shown in the status bar; unset in normal project mode. */
   launchScope?: "global" | "scratch";
+  /** Active sandbox, including a degraded marker when host isolation could not start. */
+  sandboxStatus?: string;
 }
 
 /** How long the all-complete tracker row is held before it commits its receipt and clears.
@@ -2429,6 +2431,7 @@ export function App(props: AppProps) {
         persona={persona}
         personality={personality}
         launchScope={props.launchScope}
+        sandboxStatus={props.sandboxStatus}
       />
     </Box>
   );

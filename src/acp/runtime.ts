@@ -323,7 +323,7 @@ export async function buildAcpRuntime(opts: AcpRuntimeOptions): Promise<AcpRunti
     process.stderr.write(`${line}\n`),
   );
 
-  const { sandbox: realSandbox, degraded: sandboxDegraded } = createSandboxWithInfo(
+  const { sandbox: realSandbox, degraded: sandboxDegraded } = await createSandboxWithInfo(
     config.sandbox,
     projectDir,
   );
