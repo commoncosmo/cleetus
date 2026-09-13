@@ -1,6 +1,5 @@
 import { Box, Static, Text, useStdout } from "ink";
 import type React from "react";
-import { useEffect, useState } from "react";
 import { actorOf } from "../../events/types";
 import type { TodoItem } from "../../tools/types";
 import { DiffView } from "../diff/DiffView";
@@ -10,10 +9,9 @@ import { sanitizeTerminalText } from "../terminal-text";
 import { useTheme } from "../theme";
 import { formatActorBadge } from "./actor-badges";
 import { diagnosticsRows } from "./diagnostics-rows";
-import { FRAME_MS, subscribeFrameClock } from "./frame-clock";
 import { formatHandoffLine } from "./handoff-line";
 import type { HistoryModel, Row } from "./history-model";
-import { spinnerFrame } from "./reasoning-glyph";
+import { THINKING_LIVE_GLYPH } from "./reasoning-glyph";
 import { formatRewindMarker } from "./rewind-marker";
 import { proseTail, tailLines } from "./stream-window";
 import { type LiveStream, formatThoughtMarker } from "./streaming";
@@ -31,6 +29,8 @@ export interface HistoryProps {
   reasoningEnabled?: boolean;
   /** Max visual lines for the live reasoning window (tail-follow); default 10. */
   reasoningLines?: number;
+  /** Whether to show the live reasoning tail below its stable header. */
+  reasoningExpanded?: boolean;
   /** Max visual lines for the live prose window (tail-follow); default 12. */
   proseLines?: number;
 }
@@ -230,22 +230,6 @@ function RowView({ row }: { row: Row }) {
   return <>{out}</>;
 }
 
-/** Advance a spinner frame counter on the shared frame clock while `active`; frozen (and reset to
- *  0) when inactive so an idle TUI does no timer work. Riding the shared clock rather than a timer
- *  of its own keeps this spin phase-aligned with the busy indicator, so the two never force two
- *  separate frames where one would do. */
-function useSpinnerFrame(active: boolean): number {
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    if (!active) {
-      setTick(0);
-      return;
-    }
-    return subscribeFrameClock(FRAME_MS, () => setTick((n) => n + 1));
-  }, [active]);
-  return tick;
-}
-
 export function History({
   model,
   sessionKey,
@@ -253,15 +237,12 @@ export function History({
   streamingEnabled,
   reasoningEnabled,
   reasoningLines,
+  reasoningExpanded,
   proseLines,
 }: HistoryProps) {
   const t = useTheme();
   const { stdout } = useStdout();
   const width = stdout?.columns ?? 80;
-  const reasoningActive = Boolean(
-    reasoningEnabled && liveStream && liveStream.reasoning.length > 0,
-  );
-  const tick = useSpinnerFrame(reasoningActive);
   return (
     <Box flexDirection="column">
       <Static key={sessionKey} items={model.committed}>
@@ -273,8 +254,12 @@ export function History({
         ))}
         {reasoningEnabled && liveStream && liveStream.reasoning.length > 0 && (
           <Box flexDirection="column">
-            <Text color={t.dim}>{`${spinnerFrame(tick)} thinking…`}</Text>
-            {(reasoningLines ?? 10) > 0 &&
+            <Text color={t.dim}>
+              {THINKING_LIVE_GLYPH} thinking… · ctrl+r to{" "}
+              {reasoningExpanded ? "collapse" : "expand"}
+            </Text>
+            {reasoningExpanded &&
+              (reasoningLines ?? 10) > 0 &&
               tailLines(liveStream.reasoning, Math.max(1, width - 2), reasoningLines ?? 10).map(
                 (line, i) => (
                   // biome-ignore lint/suspicious/noArrayIndexKey: a transient, fully-recomputed tail with no element identity to keep
