@@ -97,7 +97,7 @@ import { type HistoryModel, advanceHistory, seedHistory, settlePending } from ".
 import { Input, type InputSeed } from "./input";
 import { type InputGateFlags, inputDisabled } from "./input-gate";
 import { enqueue, queuedLine, resolveBoundary } from "./input-queue";
-import { isToggleReasoningKey } from "./keys";
+import { isToggleReasoningKey, isToggleTestDetailsKey } from "./keys";
 import { ModePickerModal } from "./mode-picker-modal";
 import { ModelPickerModal } from "./model-picker-modal";
 import { formatModelRoster } from "./model-roster";
@@ -130,6 +130,7 @@ import { StatusBar } from "./status-bar";
 import { liveWindowBudget, liveWindowReserve, trackerBudget, wrappedRows } from "./stream-window";
 import { type LiveStream, isStreamChunk, reduceLive } from "./streaming";
 import { TaskListApprovalPrompt } from "./task-list-approval-prompt";
+import { latestFailedTestResult } from "./test-result";
 import {
   EMPTY_TRACKER,
   applyTodos,
@@ -327,6 +328,10 @@ export function App(props: AppProps) {
     ),
   );
   const modelRef = useRef<HistoryModel>(historyModel);
+  const latestFailedTest = useMemo(
+    () => latestFailedTestResult([...historyModel.committed, ...historyModel.pending]),
+    [historyModel],
+  );
   const [busy, setBusy] = useState(false);
   const t = useTheme();
   // `/image` staging buffer: paths (or a future clipboard grab) attached here wait for the next
@@ -644,12 +649,21 @@ export function App(props: AppProps) {
   // The live tail starts collapsed for every model call; Ctrl+R expands it for the active call.
   const [reasoningExpanded, setReasoningExpanded] = useState(false);
   const reasoningCallRef = useRef<string | null>(liveRef.current.callId);
+  const [testDetailsExpanded, setTestDetailsExpanded] = useState(false);
+  const testFailureRef = useRef<string | null>(latestFailedTest?.event.id ?? null);
 
   useEffect(() => {
     if (liveStream.callId === reasoningCallRef.current) return;
     reasoningCallRef.current = liveStream.callId;
     setReasoningExpanded(false);
   }, [liveStream.callId]);
+
+  useEffect(() => {
+    const next = latestFailedTest?.event.id ?? null;
+    if (next === testFailureRef.current) return;
+    testFailureRef.current = next;
+    setTestDetailsExpanded(false);
+  }, [latestFailedTest]);
 
   // The editor starts from a passive effect so React first commits the render
   // that unmounts Input. That releases Ink's raw-mode listener before the child
@@ -1930,6 +1944,13 @@ export function App(props: AppProps) {
     { isActive: !inputDisabled(gateFlags) && liveReasoningActive },
   );
 
+  useInput(
+    (input, key) => {
+      if (isToggleTestDetailsKey(input, key)) setTestDetailsExpanded((expanded) => !expanded);
+    },
+    { isActive: !inputDisabled(gateFlags) && latestFailedTest !== null },
+  );
+
   // ^t unfolds the tracker into the full checklist, and nothing else — it is read-only. Gated on
   // the same condition as the input, so a permission prompt or picker keeps the keyboard.
   useInput(
@@ -2125,6 +2146,7 @@ export function App(props: AppProps) {
         reasoningEnabled={props.reasoningEnabled ?? true}
         reasoningLines={liveBudget.reasoningLines}
         reasoningExpanded={reasoningExpanded}
+        testDetailsExpanded={testDetailsExpanded}
         proseLines={liveBudget.proseLines}
       />
       {busy && !editorRequest && !prompt && !workflowPrompt && !workflowInput && (

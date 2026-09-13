@@ -15,6 +15,12 @@ import { THINKING_LIVE_GLYPH } from "./reasoning-glyph";
 import { formatRewindMarker } from "./rewind-marker";
 import { proseTail, tailLines } from "./stream-window";
 import { type LiveStream, formatThoughtMarker } from "./streaming";
+import {
+  TEST_DETAILS_SHORTCUT,
+  formatTestResultStatus,
+  isTestRun,
+  latestFailedTestResult,
+} from "./test-result";
 import { TodoView } from "./todo-view";
 import { formatToolLine } from "./tool-line";
 
@@ -31,6 +37,8 @@ export interface HistoryProps {
   reasoningLines?: number;
   /** Whether to show the live reasoning tail below its stable header. */
   reasoningExpanded?: boolean;
+  /** Whether to show the bounded details panel for the latest failed test/check. */
+  testDetailsExpanded?: boolean;
   /** Max visual lines for the live prose window (tail-follow); default 12. */
   proseLines?: number;
 }
@@ -177,6 +185,14 @@ function RowView({ row }: { row: Row }) {
     case "tool_call_start": {
       const call = (e.payload as { call: { id: string; name: string; args?: unknown } }).call;
       const end = row.end;
+      if (end && isTestRun(call)) {
+        out.push(
+          <Box key={e.id}>
+            <Text color={end.ok ? t.success : t.error}>{formatTestResultStatus(call, end)}</Text>
+          </Box>,
+        );
+        break;
+      }
       out.push(
         <Box key={e.id}>
           <Text color={end && !end.ok ? t.error : t.toolLine}>
@@ -238,11 +254,15 @@ export function History({
   reasoningEnabled,
   reasoningLines,
   reasoningExpanded,
+  testDetailsExpanded,
   proseLines,
 }: HistoryProps) {
   const t = useTheme();
   const { stdout } = useStdout();
   const width = stdout?.columns ?? 80;
+  const latestFailedTest = latestFailedTestResult([...model.committed, ...model.pending]);
+  const testFailureDetails =
+    latestFailedTest?.end?.errorMessage || "No failure details were recorded.";
   return (
     <Box flexDirection="column">
       <Static key={sessionKey} items={model.committed}>
@@ -283,6 +303,15 @@ export function History({
               )}
             </Box>
           )}
+        {testDetailsExpanded && latestFailedTest && (
+          <Box flexDirection="column">
+            <Text color={t.error}>Test failure details · {TEST_DETAILS_SHORTCUT} to collapse</Text>
+            {tailLines(testFailureDetails, Math.max(1, width - 2), 12).map((line, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: a transient, bounded details tail
+              <Text key={i} color={t.error}>{`  ${line}`}</Text>
+            ))}
+          </Box>
+        )}
       </Box>
     </Box>
   );

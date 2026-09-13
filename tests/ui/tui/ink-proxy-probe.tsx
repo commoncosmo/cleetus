@@ -333,6 +333,64 @@ async function reasoningPanelStartsCollapsed() {
   assert.ok(expanded.includes("first thought"), "expanded reasoning must show its tail");
 }
 
+/** Completed test runs stay compact until the user explicitly asks for failure details. */
+async function testFailureDetailsStartCollapsed() {
+  const events = [
+    {
+      id: "test-start",
+      sessionId: "s",
+      ts: 1,
+      type: "tool_call_start",
+      payload: {
+        call: { id: "tests", name: "bash", args: { command: "cd app && bun test router.test.ts" } },
+      },
+    },
+    {
+      id: "test-end",
+      sessionId: "s",
+      ts: 2,
+      type: "tool_call_end",
+      payload: {
+        call: { id: "tests" },
+        ok: false,
+        errorMessage: "✗ tests failed (exit 1)\nAssertionError: expected green\nstack trace line",
+      },
+    },
+    { id: "a1", sessionId: "s", ts: 3, type: "assistant_message", payload: { text: "" } },
+  ] as Event[];
+  const model = seedHistory(events, true, false);
+
+  const renderTest = async (testDetailsExpanded: boolean): Promise<string> => {
+    const tty = fakeTty();
+    const app = render(
+      <History
+        model={model}
+        sessionKey="s"
+        streamingEnabled={true}
+        reasoningEnabled={false}
+        testDetailsExpanded={testDetailsExpanded}
+      />,
+      { stdout: asStdout(tty), patchConsole: false },
+    );
+    await settle(50);
+    app.unmount();
+    return tty.writes.join("");
+  };
+
+  const collapsed = await renderTest(false);
+  assert.ok(collapsed.includes("✗ tests failed · ctrl+e to show details"));
+  assert.ok(!collapsed.includes("AssertionError"), "collapsed test results must hide the error");
+  assert.ok(!collapsed.includes("stack trace"), "collapsed test results must hide the stack trace");
+
+  const expanded = await renderTest(true);
+  assert.ok(expanded.includes("Test failure details · ctrl+e to collapse"));
+  assert.ok(expanded.includes("AssertionError"), "expanded test details must show the error tail");
+  assert.ok(
+    expanded.includes("stack trace"),
+    "expanded test details must show the stack trace tail",
+  );
+}
+
 try {
   await framesAreAtomic();
   await dimensionsAndResize();
@@ -340,6 +398,7 @@ try {
   await finishedAnswerCommitsAndDoesNotClear();
   await computedReserveKeepsLiveRegionUnderViewport();
   await reasoningPanelStartsCollapsed();
+  await testFailureDetailsStartCollapsed();
   process.exit(0);
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
