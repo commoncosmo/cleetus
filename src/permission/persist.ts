@@ -8,7 +8,7 @@ import type { PermissionRule } from "./types";
 // NOTE: read-modify-write is not atomic. Safe for Phase 0 (single-process app);
 // will need locking when multiple agents share a project (Phase 5).
 export async function persistRule(filePath: string, rule: PermissionRule): Promise<void> {
-  await mkdir(dirname(filePath), { recursive: true });
+  await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
   let existing: { rules: unknown[] } = { rules: [] };
   try {
     const text = await readFile(filePath, "utf8");

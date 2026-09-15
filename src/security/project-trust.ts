@@ -3,7 +3,7 @@ import { readFile, realpath } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { CleetusError } from "../lib/errors";
 import { realpathWithMissingParents } from "../permission/path-guard";
-import { writePrivateFile } from "./private-state";
+import { privateDirectory, writePrivateFile } from "./private-state";
 
 const FILES = ["config.yaml", "permissions.yaml"] as const;
 type ConfigFile = (typeof FILES)[number];
@@ -56,6 +56,7 @@ export async function approveProjectConfiguration(
   expected?: Record<string, string>,
 ): Promise<void> {
   const record = await recordPath(opts);
+  privateDirectory(dirname(record));
   const snapshot = await projectConfigurationSnapshot(opts);
   if (expected && JSON.stringify(expected) !== JSON.stringify(snapshot)) {
     throw new Error("Project configuration changed during approval; review it again.");

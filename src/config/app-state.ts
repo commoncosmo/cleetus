@@ -42,6 +42,6 @@ export async function writeAppState(configRoot: string, patch: Partial<AppState>
   if (patch.sandboxDegradedAck !== undefined) {
     raw.sandbox_degraded_ack = patch.sandboxDegradedAck;
   }
-  await mkdir(configRoot, { recursive: true });
+  await mkdir(configRoot, { recursive: true, mode: 0o700 });
   writePrivateFile(stateFile(configRoot), stringifyYaml(raw));
 }

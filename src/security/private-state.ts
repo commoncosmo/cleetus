@@ -29,7 +29,9 @@ export function privateFile(path: string): void {
 }
 
 export function writePrivateFile(path: string, content: string | Uint8Array): void {
-  privateDirectory(dirname(path));
+  // A caller may select a file in an existing shared/source directory. Never chmod that
+  // parent implicitly; privateDirectory is a separate operation for known app-owned roots.
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   privateFile(path);
   const fd = openSync(
     path,
