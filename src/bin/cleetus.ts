@@ -418,6 +418,7 @@ async function main(argv: string[]): Promise<number> {
   privateDirectory(join(projectDir, ".cleetus"));
   privateDirectory(GLOBAL_DIR);
   privateFile(GLOBAL_CONFIG);
+  privateFile(join(projectDir, ".cleetus", "config.yaml"));
 
   const memoryStores = {
     global: new MemoryStore(GLOBAL_MEMORY),

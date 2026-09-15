@@ -1,7 +1,8 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { CleetusError } from "../lib/errors";
+import { writePrivateFile } from "../security/private-state";
 import type { PermissionRule } from "./types";
 
 // NOTE: read-modify-write is not atomic. Safe for Phase 0 (single-process app);
@@ -44,5 +45,5 @@ export async function persistRule(filePath: string, rule: PermissionRule): Promi
       (r as Record<string, unknown>).path_prefix === yamlRule.path_prefix,
   );
   if (!duplicate) existing.rules.push(yamlRule);
-  await writeFile(filePath, stringifyYaml(existing));
+  writePrivateFile(filePath, stringifyYaml(existing));
 }
