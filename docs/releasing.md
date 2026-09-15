@@ -11,10 +11,17 @@ binaries, signs + notarizes the macOS ones, and publishes a GitHub Release with 
 3. Download `AuthKey_XXXX.p8` — **offered exactly once**. Note the **Key ID** and **Issuer ID**.
 
 ### 2. Export the Developer ID signing identity
-```bash
-security export -k login.keychain-db -t identities -f pkcs12 \
-  -P 'CHOOSE_AN_EXPORT_PASSWORD' -o cleetus-signing.p12
-```
+
+1. In Keychain Access, select **login → My Certificates**.
+2. Select only the intended **Developer ID Application** certificate. Expand it to verify
+   that its private key is present.
+3. Right-click that certificate and choose **Export**. Save `cleetus-signing.p12` outside
+   the repository, selecting the Personal Information Exchange (`.p12`) format.
+4. Set a strong export password in the export dialog and store it in a password manager.
+
+Do not export all identities from the login keychain: that can include unrelated personal
+signing keys. Keep the `.p12`, `.p8`, and password out of source control, chat, and shell
+history. Base64 is an encoding, not encryption.
 
 ### 3. Add six repository secrets
 Settings → Secrets and variables → Actions:
@@ -30,6 +37,44 @@ Settings → Secrets and variables → Actions:
 
 `CLEETUS_SIGN_IDENTITY` comes from the `MACOS_SIGNING_IDENTITY` repository secret, so the
 workflow contains no organization-specific certificate identity.
+
+When uploading file secrets with `gh secret set`, pipe Base64 directly to its stdin rather
+than printing it or putting it in a command argument. Enter the export password through
+the GitHub secret form or `gh secret set`'s interactive input. GitHub secrets cannot be
+read back after saving.
+
+### 4. Configure the public commit identity
+
+Set repository-local `user.name` and `user.email` to the intended public maintainer identity.
+Use a verified organization address or the GitHub-provided no-reply address from your account
+settings. Check the effective identity before committing:
+
+```bash
+git var GIT_AUTHOR_IDENT
+git var GIT_COMMITTER_IDENT
+```
+
+These settings affect future commits only. A `.mailmap` or new Git configuration does not
+remove personal identity from existing commit objects or hosted pull-request history.
+
+### 5. Secret scanning
+
+The `secrets` Actions workflow runs the pinned Gitleaks CLI against all fetched Git history
+without passing it repository signing secrets. It inherits the default detection rules and
+redacts findings. Its one private-key allowance is the exact path of the public, self-signed
+`secure.test` HTTPS fixture; a separate SHA-256 check prevents that fixture from silently
+being replaced. Any intentional fixture replacement needs review and a checksum update.
+
+Before publication, enable GitHub secret scanning and push protection where available.
+Actions scanning detects a pushed secret; push protection can prevent the push. Keep
+signing credentials restricted to release jobs. The macOS job removes its temporary key
+files and keychain with an `always()` cleanup step, including after an earlier step fails.
+
+Where the repository plan supports it, configure a `release` environment with required
+reviewers and permitted release tags, then attach the macOS signing job to that environment.
+Required reviewers are currently unavailable on this private repository's plan; enable the
+gate when the repository becomes public or the plan supports it. Do not assume an approval
+gate exists merely because credentials are stored as repository secrets.
 
 ## Local dry run (recommended before the first tag)
 
@@ -59,8 +104,9 @@ export AC_API_KEY_ID=...
 export AC_API_ISSUER_ID=...
 bun scripts/notarize.ts dist/cleetus-darwin-arm64
 ```
-Success = Apple returns `status: Accepted` and the script prints `notarized …`. Green locally
-means CI (same commands + a keychain-import prelude) will work.
+Success = Apple returns `status: Accepted` and the script prints `notarized …`. This validates
+the local signing and notarization path. CI must also validate its exported identity, secret
+values, and keychain import.
 
 ## Troubleshooting
 

@@ -3,7 +3,17 @@ node_modules/
 *.log
 .DS_Store
 .env
-.env.local
+.env.*
+!.env.example
+!.env.*.example
+# Local signing identities, notarization keys, and provisioning material.
+*.p12
+*.pfx
+*.p8
+*.keychain
+*.keychain-db
+*.mobileprovision
+*.provisionprofile
 dist/
 # cleetus runtime/per-user state (sessions.db, permissions.yaml, memory.md, vectors.db,
 # code-index.db, repomap.json, checkpoints, etc.) — nothing under here is tracked.
