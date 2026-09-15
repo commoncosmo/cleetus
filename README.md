@@ -1,8 +1,71 @@
-# cleetus
+# Cleetus
 
-Local-first coding agent for llama.cpp, LM Studio, and Ollama. Cleetus works in an interactive
-terminal, as a one-shot CLI, or as a headless ACP agent for compatible clients. It keeps tools,
-permissions, workflows, skills, and session data under your control.
+Local-first, terminal-first, privacy-first coding agent for llama.cpp, LM Studio, and Ollama.  Cleetus
+works in an interactive terminal, as a one-shot CLI, or as a headless ACP agent for compatible
+clients.  It keeps tools, permissions, workflows, skills, and session data under your control.
+
+<p align="center">
+  <img
+    src="docs/assets/cleetus-tui.png"
+    alt="Cleetus running an interactive coding session in the terminal"
+    width="1000"
+  >
+</p>
+
+Here are some other things that Cleetus takes seriously:
+
+- **Privacy.**  Cleetus does not phone home or send telemetry.  Network requests go only to model
+  providers, MCP servers, and web resources that you explicitly configure or invoke.
+- **Humor.**  We think that software (and the world) should be more fun.  More fun to produce and
+  more fun to run.
+- **Cheeseburgers.**
+- **Coffee.**
+- **A good buffet.**
+- **Waffle House.**
+- **Double spaces after a period.**  I mean, seriously... the world *did* kind of start to go to
+  hell around the same time double spaces after a period went out of fashion.  Coincidence?
+
+## The history
+
+Cleetus started as something of a goof.  I wasn't making enough use of my super-expensive AI
+subscriptions, and I started thinking, "Hey... I wish my coding agent had a southern drawl and some
+personality."  Sure, I could have just crafted a good system prompt for one of the frontier agents,
+but that's no fun.  Among other reasons, I wanted to see what went into building a coding agent and
+how much utility I could get from models that run on consumer hardware.
+
+From there, a few other things popped up on my wishlist:
+
+- I wanted something that didn't send data (even harmless telemetry) outside my network without my
+  say-so.  If I want to know how many green women Kirk scored, that's my business—not the business
+  of some advertiser or any entity in between.  Side note to model makers and trainers: this is the
+  important stuff to bake into your models.
+- I wanted not to get charged money for every execution of an agent looking for new Waffle House
+  locations near me.  You know... money other than the astonishingly bad prices of anything that
+  can remotely pass for a GPU.
+- I wanted something that I could change in any direction I wanted, even for the silliest reasons.
+  Sometimes that works out; sometimes it fails spectacularly.  Either way, it's fun.
+
+## Where we see ourselves
+
+Please don't think that we believe we're in competition with the frontier coding agents or any of
+the very fine open source agents.  The frontier coding agents and some of the established open
+source projects are very good bits of software.  So, before you troll from your mom's basement,
+just know that our response to any comparison with frontier agents is, "Well... duh?"
+
+Cleetus is almost completely coded by agents and doesn't pretend otherwise.  I like to think of it
+as "Artisan Slop."  That may change depending on the project's direction, but for the moment I have
+a day job that keeps me very busy.  After work and taking care of adulting stuff, the last thing I
+want to do is any real coding—or pretty much anything else that takes time and attention away from
+streaming *ER* or *The West Wing* and doing my best to decompress before doing it all again the next
+day.
+
+## Where we're going
+
+Over the course of getting Cleetus to its current level of capability, one thing became very clear:
+it isn't that difficult to create a halfway-competent agent when that agent uses frontier models.
+It is far more difficult to create an agent that can get real things done with off-the-shelf models
+in the ~9B, ~30B, or even ~120B range.  If you like Cleetus and want to contribute, that's where I
+would put the energy: getting as much as possible out of smaller, local models.
 
 ## Start here
 
