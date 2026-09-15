@@ -2,7 +2,6 @@ import {
   constants,
   chmodSync,
   closeSync,
-  existsSync,
   lstatSync,
   mkdirSync,
   openSync,
@@ -20,8 +19,15 @@ export function privateDirectory(path: string): void {
 }
 
 export function privateFile(path: string): void {
-  if (!existsSync(path)) return;
-  const info = lstatSync(path);
+  // existsSync follows links and reports false for dangling links. Inspect the directory
+  // entry itself so SQLite cannot follow a pre-planted dangling link when creating a DB.
+  let info: ReturnType<typeof lstatSync>;
+  try {
+    info = lstatSync(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
   if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1) {
     throw new Error(`private state file is not a regular unlinked file: ${path}`);
   }

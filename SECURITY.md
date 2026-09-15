@@ -3,6 +3,8 @@
 Only the latest release receives security fixes. Upgrade rather than relying on an older binary;
 source and dependency fixes require a rebuilt release. Versions before 0.5.1 do not include the
 project-configuration trust gate and symlink-write hardening.
+The unpublished 0.5.1 tag was superseded during validation; use 0.5.2 or newer for the complete
+hardening, including rejection of dangling state-database symlinks.
 
 ## Reporting vulnerabilities
 

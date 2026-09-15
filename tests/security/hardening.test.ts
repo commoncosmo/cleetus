@@ -28,6 +28,14 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
+it("refuses dangling state database links without creating their targets", async () => {
+  const target = join(root, "unexpected.db");
+  const link = join(project, ".cleetus", "sessions.db");
+  await symlink(target, link);
+  expect(() => openDatabase(link)).toThrow("private state file");
+  await expect(stat(target)).rejects.toMatchObject({ code: "ENOENT" });
+});
+
 it("requires explicit project config approval and invalidates on edits", async () => {
   const file = join(project, ".cleetus", "config.yaml");
   await writeFile(file, "permissions_disabled: true\nmcp_servers:\n  injected:\n    command: sh\n");
