@@ -6,7 +6,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   verify:
@@ -66,9 +66,11 @@ jobs:
           MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
         run: |
-          KEYCHAIN="$RUNNER_TEMP/build.keychain"
+          umask 077
+          KEYCHAIN="$RUNNER_TEMP/cleetus-signing.keychain-db"
           KEYCHAIN_PW="$(uuidgen)"
-          echo "$MACOS_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          echo "::add-mask::$KEYCHAIN_PW"
+          printf '%s' "$MACOS_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
           security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
           security set-keychain-settings -lut 21600 "$KEYCHAIN"
           security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
@@ -91,12 +93,21 @@ jobs:
           AC_API_KEY_ID: ${{ secrets.AC_API_KEY_ID }}
           AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
         run: |
-          echo "$AC_API_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/ac_key.p8"
+          umask 077
+          printf '%s' "$AC_API_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/ac_key.p8"
           export AC_API_KEY_PATH="$RUNNER_TEMP/ac_key.p8"
           # Asset name mirrors scripts/targets.ts assetName(): cleetus-<arch>.
           ASSET="cleetus-${MATRIX_TARGET#bun-}"
           bun scripts/notarize.ts "dist/$ASSET"
           rm "$RUNNER_TEMP/ac_key.p8"
+
+      - name: Remove temporary signing credentials
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/ac_key.p8"
+          if [ -f "$RUNNER_TEMP/cleetus-signing.keychain-db" ]; then
+            security delete-keychain "$RUNNER_TEMP/cleetus-signing.keychain-db"
+          fi
 
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
@@ -107,6 +118,8 @@ jobs:
   release:
     needs: [build-linux, build-macos]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

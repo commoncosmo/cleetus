@@ -1,0 +1,11 @@
+title = "Cleetus secret scanning"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "private-key"
+
+[[rules.allowlists]]
+description = "Public self-signed secure.test HTTPS fixture; CI pins its SHA-256"
+paths = ['''^tests/web/fixtures/secure-test-key\.pem$''']
