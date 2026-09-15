@@ -2,12 +2,12 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadPermissions } from "../../../src/permission/loader";
 import { persistRule } from "../../../src/permission/persist";
 import {
   type PermissionAction,
   editedPermissionGrant,
 } from "../../../src/ui/tui/permission-prompt";
+import { loadPermissions } from "../../helpers/trusted-config";
 
 const dirs: string[] = [];
 

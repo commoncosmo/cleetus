@@ -136,6 +136,17 @@ The most common cause is a binary signed without hardened runtime (`flags` missi
 
 ## Cutting a release
 
+Release tags now run the reusable CI and secret-scan workflows on the tagged commit before
+signing credentials are imported. CI includes the frozen install, dependency audit (all
+severities), lint, typecheck, license notices, and tests. Do not bypass a failed gate.
+Repository protection requires `check` and `scan` for main and restricts `v*` tag mutation to
+administrators. Review the scheduled dependency audit weekly and refresh security overrides
+deliberately with Bun; do not change direct version pins just to refresh transitive packages.
+
+Before switching repository visibility to public, enable and verify GitHub private vulnerability
+reporting and set the fork-PR approval policy. GitHub does not currently expose those settings
+for this private repository. Keep release secrets off pull-request jobs.
+
 1. Bump `version` in `package.json` (e.g. to `0.1.1`) and commit.
 2. Tag and push:
    ```bash

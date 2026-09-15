@@ -1,17 +1,15 @@
-name: ci
+name: dependencies
 
 on:
-  workflow_call:
   workflow_dispatch:
-  push:
-    branches: [main]
-  pull_request:
+  schedule:
+    - cron: "17 9 * * 1"
 
 permissions:
   contents: read
 
 jobs:
-  check:
+  audit:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -21,13 +19,4 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
-      - name: Dependency vulnerability audit (all severities)
-        run: bun audit
-      - name: Lint (biome)
-        run: bun run lint
-      - name: Typecheck (tsc)
-        run: bun run typecheck
-      - name: Check third-party notices
-        run: bun run licenses:check
-      - name: Test
-        run: bun test
+      - run: bun audit

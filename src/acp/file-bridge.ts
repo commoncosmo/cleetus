@@ -1,4 +1,5 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, readFile } from "node:fs/promises";
 
 export interface FileBridge {
   readTextFile(absPath: string): Promise<string>;
@@ -11,7 +12,15 @@ export class DirectFileBridge implements FileBridge {
     return readFile(absPath, "utf8");
   }
   async writeTextFile(absPath: string, content: string): Promise<void> {
-    await writeFile(absPath, content);
+    const fd = await open(
+      absPath,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
+    );
+    try {
+      await fd.writeFile(content);
+    } finally {
+      await fd.close();
+    }
   }
 }
 

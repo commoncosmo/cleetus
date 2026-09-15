@@ -25,12 +25,12 @@ export class EventLog {
   private mirrorWriteFailing = false;
 
   constructor(dbPath: string, opts?: { mirrorPath?: string }) {
-    mkdirSync(dirname(dbPath), { recursive: true });
+    mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
     this.db = openDatabase(dbPath, { create: true });
     this.initialize(this.db);
     if (opts?.mirrorPath && opts.mirrorPath !== dbPath && dbPath !== ":memory:") {
       try {
-        mkdirSync(dirname(opts.mirrorPath), { recursive: true });
+        mkdirSync(dirname(opts.mirrorPath), { recursive: true, mode: 0o700 });
         this.mirrorDb = openDatabase(opts.mirrorPath, { create: true });
         this.initialize(this.mirrorDb);
       } catch (e) {

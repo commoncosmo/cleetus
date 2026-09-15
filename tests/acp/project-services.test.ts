@@ -3,11 +3,11 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AcpProjectServiceRegistry } from "../../src/acp/project-services";
-import { loadConfig } from "../../src/config/loader";
 import { EventLog } from "../../src/events/log";
 import { openDatabase } from "../../src/lib/db";
 import { ProviderRegistry } from "../../src/providers/registry";
 import type { Sandbox } from "../../src/sandbox/types";
+import { loadConfig } from "../helpers/trusted-config";
 
 const roots: string[] = [];
 

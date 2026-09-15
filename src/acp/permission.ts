@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { dirname, relative, sep } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 import type { ResolvePermission } from "../agent/types";
 import { evaluateRules, pathUnder } from "../permission/evaluator";
 import { addRule } from "../permission/grant";
 import {
   dirEscapesProject,
+  realpathWithMissingParents,
   resolveReadTarget,
   resolveToolTargetPath,
 } from "../permission/path-guard";
@@ -28,8 +29,8 @@ export interface SessionGrants {
   prefixes: string[];
   /** Exact-match session denials recorded by "Always reject" (tool + serialized args). */
   denials: { tool: string; argsPattern: string }[];
-  /** Bash command-prefix grants ("Always allow commands starting with …"). */
-  bashPrefixes: string[];
+  /** Exact command + resolved cwd grants; never shell-prefix matches. */
+  bashCommands: { command: string; cwd: string }[];
 }
 
 const ALLOW_ONCE = { optionId: "allow_once", name: "Allow once", kind: "allow_once" };
@@ -95,13 +96,15 @@ export function makeAcpResolvePermission(
     // 4. Whole-tool session grant ("Always allow" on a non-writer).
     if (grants.tools.has(tool)) return "allow";
 
-    // 4b. Bash command-prefix session grant ("Always allow commands starting with …"). Anchored
-    //     at a token boundary (exact match or followed by a space) — unlike the TUI's
-    //     user-authored trailing-`*` patterns, these prefixes are machine-constructed from a past
-    //     command, so "bun test" must not also match "bun testx-malicious" or "bun test;rm".
+    const shellArgs = args as { command?: unknown; cwd?: unknown } | null;
+    const command = typeof shellArgs?.command === "string" ? shellArgs.command : null;
+    const cwd = await realpathWithMissingParents(
+      resolve(projectDir, typeof shellArgs?.cwd === "string" ? shellArgs.cwd : "."),
+    );
     if (
       tool === "bash" &&
-      grants.bashPrefixes.some((p) => argsSummary === p || argsSummary.startsWith(`${p} `))
+      command !== null &&
+      grants.bashCommands.some((grant) => grant.command === command && grant.cwd === cwd)
     ) {
       return "allow";
     }
@@ -131,8 +134,8 @@ export function makeAcpResolvePermission(
       options = [
         ALLOW_ONCE,
         {
-          optionId: "allow_bash_prefix",
-          name: `Always allow commands starting with "${argsSummary}"`,
+          optionId: "allow_bash_exact",
+          name: `Always allow this exact command in ${cwd}`,
           kind: "allow_always",
         },
         REJECT_ONCE,
@@ -175,7 +178,7 @@ export function makeAcpResolvePermission(
     if (
       needsConsent &&
       (chosen === "allow_once" ||
-        chosen === "allow_bash_prefix" ||
+        chosen === "allow_bash_exact" ||
         chosen === "allow_dir" ||
         chosen === "allow_always")
     ) {
@@ -186,10 +189,9 @@ export function makeAcpResolvePermission(
       case "allow_dir":
         if (grantDir != null) grants.prefixes.push(grantDir);
         return "allow";
-      case "allow_bash_prefix": {
+      case "allow_bash_exact": {
         if (tool !== "bash") return "deny"; // rogue echo guard
-        const trimmed = argsSummary.trim();
-        if (trimmed !== "") grants.bashPrefixes.push(trimmed);
+        if (command?.trim()) grants.bashCommands.push({ command, cwd });
         return "allow";
       }
       case "allow_always":

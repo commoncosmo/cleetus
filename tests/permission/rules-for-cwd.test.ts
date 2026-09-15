@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { makeRulesForCwd } from "../../src/permission/loader";
+import { makeRulesForCwd } from "../helpers/trusted-config";
 
 function projWithRule(decision: string): string {
   const dir = mkdtempSync(join(tmpdir(), "rfc-"));

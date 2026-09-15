@@ -42,7 +42,7 @@ export async function pathEscapesProject(rawPath: string, projectDir: string): P
     projectRoot = resolve(projectDir);
   }
   const target = isAbsolute(rawPath) ? rawPath : resolve(projectRoot, rawPath);
-  const resolvedDir = await realpathWithMissingParents(dirname(target));
+  const resolvedDir = await realpathWithMissingParents(target);
   return resolvedDir !== projectRoot && !resolvedDir.startsWith(projectRoot + sep);
 }
 

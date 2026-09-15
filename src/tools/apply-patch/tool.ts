@@ -1,6 +1,7 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { appendRegion } from "../changed-region";
+import { guardedWrite } from "../guarded-write";
 import { refuseIfSecretPath } from "../read-guard";
 import type { Tool, ToolContext, ToolResult } from "../types";
 import { refuseIfOutsideProject } from "../within-project";
@@ -56,7 +57,7 @@ export class ApplyPatchTool implements Tool {
         await mkdir(dirname(path), { recursive: true });
         try {
           // `wx` = create-exclusive: fails atomically if the file exists (no TOCTOU window).
-          await writeFile(path, after, { flag: "wx" });
+          await guardedWrite(path, after, ctx, true);
         } catch (e) {
           if ((e as NodeJS.ErrnoException).code === "EEXIST") {
             return {
@@ -89,7 +90,7 @@ export class ApplyPatchTool implements Tool {
       if (!res.ok) {
         return { ok: false, errorCode: "TOOL_FAILED", errorMessage: res.reason };
       }
-      await writeFile(path, res.after);
+      await guardedWrite(path, res.after, ctx);
       const base = `patched ${path} (${parsed.hunks.length} hunk${parsed.hunks.length === 1 ? "" : "s"})`;
       return {
         ok: true,

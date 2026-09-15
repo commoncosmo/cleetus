@@ -772,6 +772,24 @@ automatically.
 
 ## Sandbox
 
+### Review project configuration before first use
+
+Project `.cleetus/config.yaml` and `.cleetus/permissions.yaml` can grant code-execution authority.
+Before loading them, Cleetus requires explicit approval of their current contents:
+
+```sh
+cleetus trust          # display file fingerprints; does not approve
+# Review the two files locally before continuing.
+cleetus trust --yes
+```
+
+Use the same `--config-dir` for trust and normal launches; it must be outside the project.
+Changed configuration (including saved permission-rule edits) requires reapproval. ACP/editor
+launches use the same gate: approve from a terminal first. Projects without these files need no
+approval. MCP credentials must be passed explicitly in the server's `env` configuration; arbitrary
+parent environment variables are no longer inherited. See [SECURITY.md](SECURITY.md) for boundaries
+and limitations.
+
 cleetus runs `bash` tool commands inside a sandbox. The backend is chosen by
 `sandbox.backend` in config (`none` | `host` | `docker`); the default is `host`.
 

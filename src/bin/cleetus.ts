@@ -109,6 +109,7 @@ import { truncateMapToBudget } from "../repomap/render";
 import { unconfinedSandboxNotice } from "../sandbox/boundary";
 import { createSandboxWithInfo, sandboxStatus } from "../sandbox/factory";
 import { spawnCollect } from "../sandbox/spawn";
+import { privateDirectory, privateFile } from "../security/private-state";
 import { isSecretPath } from "../security/secret-paths";
 import { firstRunSetup } from "../setup/first-run";
 import { bootstrapSkills } from "../skills/bootstrap";
@@ -212,6 +213,10 @@ interface ProgramOptions {
 }
 
 async function main(argv: string[]): Promise<number> {
+  if (argv[2] === "trust") {
+    const { runTrust } = await import("../ui/cli/trust");
+    return runTrust(argv, process.cwd());
+  }
   if (argv[2] === "workflow") {
     const { runWorkflowCli } = await import("../ui/cli/workflow");
     return runWorkflowCli(argv, process.cwd(), {
@@ -410,8 +415,9 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
 
-  mkdirSync(join(projectDir, ".cleetus"), { recursive: true });
-  mkdirSync(GLOBAL_DIR, { recursive: true });
+  privateDirectory(join(projectDir, ".cleetus"));
+  privateDirectory(GLOBAL_DIR);
+  privateFile(GLOBAL_CONFIG);
 
   const memoryStores = {
     global: new MemoryStore(GLOBAL_MEMORY),

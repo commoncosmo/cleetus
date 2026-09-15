@@ -53,6 +53,7 @@ import { resolveStartupChoice } from "../providers/startup";
 import { truncateMapToBudget } from "../repomap/render";
 import { createSandboxWithInfo } from "../sandbox/factory";
 import type { Sandbox } from "../sandbox/types";
+import { privateDirectory, privateFile } from "../security/private-state";
 import { bootstrapSkills } from "../skills/bootstrap";
 import { composeSkillBody, renderSkillReminder, stripSystemReminders } from "../skills/compose";
 import type { SkillRegistry } from "../skills/registry";
@@ -307,9 +308,10 @@ export async function buildAcpRuntime(opts: AcpRuntimeOptions): Promise<AcpRunti
     model = first.model;
   }
 
-  mkdirSync(join(projectDir, ".cleetus"), { recursive: true });
-  mkdirSync(join(opts.projectHome ?? projectDir, ".cleetus"), { recursive: true });
-  mkdirSync(globalDir, { recursive: true });
+  privateDirectory(join(projectDir, ".cleetus"));
+  privateDirectory(join(opts.projectHome ?? projectDir, ".cleetus"));
+  privateDirectory(globalDir);
+  privateFile(GLOBAL_CONFIG);
   const sessionsDbPath = resolveSessionDbPath(projectDir, opts.sessionDb);
   ensureParentDir(sessionsDbPath);
   const log = new EventLog(sessionsDbPath, {

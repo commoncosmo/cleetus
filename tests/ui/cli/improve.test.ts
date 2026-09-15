@@ -3,54 +3,58 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ImproveRoundDeps } from "../../../src/improve/round";
+import { approveProjectConfiguration } from "../../../src/security/project-trust";
 import { runImprove } from "../../../src/ui/cli/improve";
 
-function project(configYaml?: string): string {
+const globalConfigPath = join(mkdtempSync(join(tmpdir(), "cleetus-cli-global-")), "config.yaml");
+
+async function project(configYaml?: string): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), "cleetus-improve-cli-"));
   if (configYaml) {
     mkdirSync(join(dir, ".cleetus"), { recursive: true });
     writeFileSync(join(dir, ".cleetus", "config.yaml"), configYaml);
   }
+  await approveProjectConfiguration({ projectDir: dir, globalPath: globalConfigPath });
   return dir;
 }
 
 test("fails closed (exit 3) when sandbox backend is not docker", async () => {
-  const dir = project();
+  const dir = await project();
   let err = "";
   const code = await runImprove(["improve"], dir, {
     write: () => {},
     writeErr: (s) => {
       err += s;
     },
-    globalConfigPath: join(dir, "no-global.yaml"),
+    globalConfigPath,
   });
   expect(code).toBe(3);
   expect(err).toContain("docker");
 });
 
 test("docker backend with no image → refuses (exit 3)", async () => {
-  const dir = project("sandbox:\n  backend: docker\n");
+  const dir = await project("sandbox:\n  backend: docker\n");
   let err = "";
   const code = await runImprove(["improve"], dir, {
     write: () => {},
     writeErr: (s) => {
       err += s;
     },
-    globalConfigPath: join(dir, "no-global.yaml"),
+    globalConfigPath,
   });
   expect(code).toBe(3);
   expect(err.toLowerCase()).toContain("image");
 });
 
 test("docker configured but no scenarios → friendly note, exit 0", async () => {
-  const dir = project("sandbox:\n  backend: docker\n  image: bash:latest\n");
+  const dir = await project("sandbox:\n  backend: docker\n  image: bash:latest\n");
   let out = "";
   const code = await runImprove(["improve"], dir, {
     write: (s) => {
       out += s;
     },
     writeErr: () => {},
-    globalConfigPath: join(dir, "no-global.yaml"),
+    globalConfigPath,
   });
   expect(code).toBe(0);
   expect(out.toLowerCase()).toContain("no scenarios");
@@ -74,7 +78,7 @@ test("max_tool_loops: 0 in config reaches runImproveRound's baseline as Infinity
     },
   }));
 
-  const dir = project(
+  const dir = await project(
     [
       "sandbox:",
       "  backend: docker",
@@ -96,7 +100,7 @@ test("max_tool_loops: 0 in config reaches runImproveRound's baseline as Infinity
   const code = await runImprove(["improve"], dir, {
     write: () => {},
     writeErr: () => {},
-    globalConfigPath: join(dir, "no-global.yaml"),
+    globalConfigPath,
   });
   expect(code).toBe(0);
   expect(captured).toBe(Number.POSITIVE_INFINITY);

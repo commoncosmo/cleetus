@@ -360,7 +360,7 @@ export function registerSessionMethods(
               tools: new Set<string>(),
               prefixes: [],
               denials: [],
-              bashPrefixes: [],
+              bashCommands: [],
             });
           }
           const grants = grantsBySession.get(sessionId)!;

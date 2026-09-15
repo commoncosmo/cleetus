@@ -47,6 +47,8 @@ export class WriteFileTool implements Tool {
         created = true;
       }
       await mkdir(dirname(path), { recursive: true });
+      const finalRefusal = await refuseIfOutsideProject(a.path, ctx);
+      if (finalRefusal) return finalRefusal;
       await this.fileBridge.writeTextFile(path, a.content);
       return {
         ok: true,

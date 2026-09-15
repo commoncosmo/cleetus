@@ -1,4 +1,6 @@
 import { Database } from "bun:sqlite";
+import { constants, closeSync, openSync } from "node:fs";
+import { privateFile } from "../security/private-state";
 
 type DbOptions = ConstructorParameters<typeof Database>[1];
 
@@ -18,6 +20,22 @@ type DbOptions = ConstructorParameters<typeof Database>[1];
  * reader waits for a writer's brief lock rather than erroring.
  */
 export function openDatabase(path: string, opts?: DbOptions): Database {
+  const writable = !(opts as { readonly?: boolean } | undefined)?.readonly;
+  if (writable && path !== ":memory:") {
+    try {
+      closeSync(
+        openSync(
+          path,
+          constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+          0o600,
+        ),
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+    privateFile(path);
+    for (const suffix of ["-wal", "-shm"]) privateFile(path + suffix);
+  }
   // `new Database(path)` defaults to readwrite+create; `new Database(path, {})` errors ("flags must
   // include READONLY or READWRITE"), so only pass opts when given.
   const db = opts ? new Database(path, opts) : new Database(path);

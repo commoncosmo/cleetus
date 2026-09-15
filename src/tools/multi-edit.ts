@@ -1,6 +1,7 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { appendRegion } from "./changed-region";
+import { guardedWrite } from "./guarded-write";
 import { nearMissHint } from "./near-miss";
 import { refuseIfSecretPath } from "./read-guard";
 import { applyReplacement } from "./replace";
@@ -110,7 +111,7 @@ export class MultiEditTool implements Tool {
         total += res.count;
         if (res.whitespaceTolerant) wsTolerant = true;
       }
-      await writeFile(path, text);
+      await guardedWrite(path, text, ctx);
       const note = wsTolerant ? ", some matched ignoring indentation" : "";
       const base = `applied ${edits.length} edit${edits.length === 1 ? "" : "s"} to ${path} (${total} replacement${total === 1 ? "" : "s"}${note})`;
       return {

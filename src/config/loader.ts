@@ -5,6 +5,7 @@ import { DEFAULT_EFFORT } from "../agent/effort";
 import { DEFAULT_PERSONALITY } from "../agent/personalities";
 import { DEFAULT_PERSONA } from "../agent/personas";
 import { CleetusError } from "../lib/errors";
+import { readTrustedProjectFile } from "../security/project-trust";
 import { resolveAttachments } from "./attachments";
 import { resolveBuildGate } from "./build-gate";
 import { resolveCheckpoint } from "./checkpoint";
@@ -69,10 +70,11 @@ function interpolateDeep<T>(input: T): T {
   return input;
 }
 
-async function readYaml(path: string): Promise<RawConfig | null> {
+async function readYaml(path: string, approvedText?: string | null): Promise<RawConfig | null> {
+  if (approvedText === null) return null;
   let text: string;
   try {
-    text = await readFile(path, "utf8");
+    text = approvedText ?? (await readFile(path, "utf8"));
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw new CleetusError("IO_FAILED", `failed to read ${path}`, { cause: e });
@@ -130,11 +132,15 @@ function resolveScopedPath(val: string | undefined, baseDir: string): string | u
 export interface LoadConfigOptions {
   globalPath: string;
   projectDir: string;
+  trustStoreDir?: string;
 }
 
 export async function loadConfig(opts: LoadConfigOptions): Promise<CleetusConfig> {
   const global = await readYaml(opts.globalPath);
-  const project = await readYaml(join(opts.projectDir, ".cleetus", "config.yaml"));
+  const project = await readYaml(
+    join(opts.projectDir, ".cleetus", "config.yaml"),
+    await readTrustedProjectFile(opts, "config.yaml"),
+  );
 
   const g = global ? normalize(global) : {};
   const p = project ? normalize(project) : {};

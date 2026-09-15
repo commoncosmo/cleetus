@@ -3,8 +3,8 @@ import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { loadPermissions } from "../../src/permission/loader";
 import { persistRule } from "../../src/permission/persist";
+import { loadPermissions } from "../helpers/trusted-config";
 
 let dir: string;
 beforeEach(async () => {

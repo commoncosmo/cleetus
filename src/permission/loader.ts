@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { CleetusError } from "../lib/errors";
+import { readTrustedProjectFile } from "../security/project-trust";
 import type { PermissionRule, PermissionRules } from "./types";
 
 const RuleSchema = z.object({
@@ -16,10 +17,11 @@ const FileSchema = z.object({
   rules: z.array(RuleSchema).default([]),
 });
 
-async function readRules(path: string): Promise<PermissionRule[]> {
+async function readRules(path: string, approvedText?: string | null): Promise<PermissionRule[]> {
+  if (approvedText === null) return [];
   let text: string;
   try {
-    text = await readFile(path, "utf8");
+    text = approvedText ?? (await readFile(path, "utf8"));
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw new CleetusError("IO_FAILED", `failed to read ${path}`, { cause: e });
@@ -51,11 +53,15 @@ async function readRules(path: string): Promise<PermissionRule[]> {
 export interface LoadPermissionsOptions {
   globalPath: string;
   projectDir: string;
+  trustStoreDir?: string;
 }
 
 export async function loadPermissions(opts: LoadPermissionsOptions): Promise<PermissionRules> {
   const [project, global] = await Promise.all([
-    readRules(join(opts.projectDir, ".cleetus", "permissions.yaml")),
+    readRules(
+      join(opts.projectDir, ".cleetus", "permissions.yaml"),
+      await readTrustedProjectFile(opts, "permissions.yaml"),
+    ),
     readRules(opts.globalPath),
   ]);
   return { project, global };

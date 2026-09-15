@@ -8,10 +8,26 @@ import type {
   NamedServerConfig,
 } from "./types";
 
-/** process.env has `string | undefined` values; the SDK wants `Record<string,string>`. */
-function cleanEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+/** Minimal process environment. Credentials must be explicitly assigned per server. */
+export function mcpEnvironment(env: NodeJS.ProcessEnv): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(env)) {
+  for (const k of [
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "TMPDIR",
+    "TEMP",
+    "TMP",
+    "SystemRoot",
+    "WINDIR",
+    "COMSPEC",
+    "PATHEXT",
+    "LANG",
+    "LC_ALL",
+  ]) {
+    const v = env[k];
     if (typeof v === "string") out[k] = v;
   }
   return out;
@@ -24,7 +40,7 @@ export function createStdioConnection(server: NamedServerConfig): McpConnection 
       const transport = new StdioClientTransport({
         command: server.command,
         args: server.args,
-        env: { ...cleanEnv(process.env), ...server.env },
+        env: { ...mcpEnvironment(process.env), ...server.env },
       });
       client = new Client({ name: "cleetus", version: "0.0.0" }, { capabilities: {} });
       await client.connect(transport);

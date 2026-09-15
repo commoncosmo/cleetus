@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ResizeConfig } from "../config/resize";
 import type { VisionConfig } from "../config/vision";
 import type { ImageRef } from "../providers/types";
+import { privateDirectory, privateFile, writePrivateFile } from "../security/private-state";
 import { looksLikeHeic, transcodeHeicToJpeg } from "./heic";
 import { readImageDimensions } from "./image-dimensions";
 import { resizeImage } from "./resize";
@@ -89,9 +90,10 @@ export async function storeImage(
       ? `image is still ${finalDims.width}x${finalDims.height} (> ${resize.maxDimension}px cap) and could not be downscaled; sending at full size (may fail on low-memory local vision models)`
       : undefined;
   const sha256 = createHash("sha256").update(data).digest("hex");
-  mkdirSync(storeDir, { recursive: true });
+  privateDirectory(storeDir);
   const path = join(storeDir, `${sha256}.${extForMime(mime)}`);
-  if (!existsSync(path)) writeFileSync(path, data);
+  if (!existsSync(path)) writePrivateFile(path, data);
+  else privateFile(path);
   return { ref: { mime, path, sha256 }, warning };
 }
 

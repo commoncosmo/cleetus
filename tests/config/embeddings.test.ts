@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig } from "../../src/config/loader";
+import { loadConfig } from "../helpers/trusted-config";
 
 describe("loadConfig embeddings", () => {
   it("parses and normalizes the embeddings block", async () => {

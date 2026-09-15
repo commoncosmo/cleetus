@@ -11,7 +11,7 @@ import {
 import type { PermissionRules } from "../../src/permission/types";
 
 function emptyGrants(): SessionGrants {
-  return { tools: new Set<string>(), prefixes: [], denials: [], bashPrefixes: [] };
+  return { tools: new Set<string>(), prefixes: [], denials: [], bashCommands: [] };
 }
 
 /** A client whose `requestPermission` throws if called — used to prove a call short-circuits
@@ -82,10 +82,10 @@ describe("makeAcpResolvePermission", () => {
     expect(calls).toHaveLength(1);
   });
 
-  it("bash 'always allow' grants only a command prefix", async () => {
+  it("bash 'always allow' grants only a exact command", async () => {
     const grants = emptyGrants();
     const resolve = makeAcpResolvePermission(
-      clientPicking("allow_bash_prefix").client,
+      clientPicking("allow_bash_exact").client,
       "s1",
       grants,
       PROJECT,
@@ -93,16 +93,16 @@ describe("makeAcpResolvePermission", () => {
     expect(
       await resolve({ tool: "bash", args: { command: "bun test" }, argsSummary: "bun test" }),
     ).toBe("allow");
-    expect(grants.bashPrefixes).toEqual(["bun test"]);
+    expect(grants.bashCommands).toEqual([{ command: "bun test", cwd: PROJECT }]);
     expect(grants.tools.has("bash")).toBe(false);
 
-    // Same-prefix call sails through without prompting…
+    // Identical call sails through without prompting…
     const noPrompt = makeAcpResolvePermission(clientThatThrowsIfAsked(), "s1", grants, PROJECT);
     expect(
       await noPrompt({
         tool: "bash",
-        args: { command: "bun test --watch" },
-        argsSummary: "bun test --watch",
+        args: { command: "bun test" },
+        argsSummary: "bun test",
       }),
     ).toBe("allow");
     // …but a different command still prompts (client throws → test fails if prompted path not taken).
@@ -111,19 +111,19 @@ describe("makeAcpResolvePermission", () => {
     ).rejects.toThrow("should not prompt");
   });
 
-  it("bash prefix grants anchor at a token boundary, not a raw substring", async () => {
+  it("bash exact grants do not authorize lookalikes", async () => {
     const grants = emptyGrants();
-    grants.bashPrefixes = ["bun test"];
+    grants.bashCommands = [{ command: "bun test", cwd: PROJECT }];
     const resolve = makeAcpResolvePermission(clientThatThrowsIfAsked(), "s1", grants, PROJECT);
-    // exact match and space-delimited continuations allow without prompting
+    // identical commands allow without prompting
     expect(
       await resolve({ tool: "bash", args: { command: "bun test" }, argsSummary: "bun test" }),
     ).toBe("allow");
     expect(
       await resolve({
         tool: "bash",
-        args: { command: "bun test --watch" },
-        argsSummary: "bun test --watch",
+        args: { command: "bun test" },
+        argsSummary: "bun test",
       }),
     ).toBe("allow");
     // a look-alike sharing the string prefix but not a token boundary must prompt, not auto-allow
@@ -136,10 +136,10 @@ describe("makeAcpResolvePermission", () => {
     ).rejects.toThrow("should not prompt");
   });
 
-  it("an empty-command bash prefix grant records nothing", async () => {
+  it("an empty-command bash grant records nothing", async () => {
     const grants = emptyGrants();
     const resolve = makeAcpResolvePermission(
-      clientPicking("allow_bash_prefix").client,
+      clientPicking("allow_bash_exact").client,
       "s1",
       grants,
       PROJECT,
@@ -147,11 +147,11 @@ describe("makeAcpResolvePermission", () => {
     expect(await resolve({ tool: "bash", args: { command: "" }, argsSummary: "   " })).toBe(
       "allow",
     );
-    expect(grants.bashPrefixes).toEqual([]);
+    expect(grants.bashCommands).toEqual([]);
   });
 
   it("a rogue allow_always echo for bash yields deny, not a blanket grant", async () => {
-    // bash is never offered "allow_always" (only "allow_bash_prefix"), but a buggy/rogue client
+    // bash is never offered "allow_always" (only "allow_bash_exact"), but a buggy/rogue client
     // might echo it anyway — force it to prove the guard is structural, not option-driven.
     const client: PermissionClient = {
       async requestPermission() {
@@ -184,7 +184,7 @@ describe("makeAcpResolvePermission", () => {
       tools: new Set(),
       prefixes: [join(PROJECT, "src")],
       denials: [],
-      bashPrefixes: [],
+      bashCommands: [],
     };
     const resolve = makeAcpResolvePermission(client, "s1", grants, PROJECT);
     // under the granted prefix → allow without prompting
@@ -247,18 +247,18 @@ describe("makeAcpResolvePermission — directory-scoped options", () => {
     ]);
   });
 
-  it("offers bash its own 'allow commands starting with…' option (not blanket allow_always)", async () => {
+  it("offers bash an exact-command option, not blanket allow_always", async () => {
     const { client, calls } = clientPicking("allow_once");
     const resolve = makeAcpResolvePermission(client, "s1", emptyGrants(), PROJECT);
     await resolve({ tool: "bash", args: { command: "ls" }, argsSummary: "ls" });
     expect(calls[0]!.options.map((o) => o.optionId)).toEqual([
       "allow_once",
-      "allow_bash_prefix",
+      "allow_bash_exact",
       "reject_once",
       "reject_always",
     ]);
-    const opt = calls[0]!.options.find((o) => o.optionId === "allow_bash_prefix")!;
-    expect(opt.name).toBe('Always allow commands starting with "ls"');
+    const opt = calls[0]!.options.find((o) => o.optionId === "allow_bash_exact")!;
+    expect(opt.name).toBe(`Always allow this exact command in ${PROJECT}`);
     expect(opt.kind).toBe("allow_always");
   });
 
@@ -465,9 +465,9 @@ describe("makeAcpResolvePermission — REJECT_ALWAYS session denial + persisted 
     ).toBe("deny");
   });
 
-  it("a persisted deny rule wins over a granted bash prefix (deny beats bashPrefixes)", async () => {
+  it("a persisted deny rule wins over an exact bash grant", async () => {
     const grants = emptyGrants();
-    grants.bashPrefixes = ["bun test"];
+    grants.bashCommands = [{ command: "bun test", cwd: PROJECT }];
     const rules: PermissionRules = {
       project: [{ tool: "bash", argsPattern: "bun test --evil", decision: "deny" }],
       global: [],

@@ -1,5 +1,6 @@
 export const ROOT_COMMAND_HELP = `
 Standalone commands:
+  trust                           review and approve project configuration before it can run code
   workflow [command]              initialize, inspect, validate, test, and run strict workflows
   analyze                         analyze recorded sessions and tool usage
   eval                            evaluate agent candidates against scenarios

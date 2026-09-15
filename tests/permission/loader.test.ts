@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadPermissions } from "../../src/permission/loader";
+import { loadPermissions } from "../helpers/trusted-config";
 
 let dir: string;
 beforeEach(async () => {

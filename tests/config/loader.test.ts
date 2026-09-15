@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig } from "../../src/config/loader";
 import { DEFAULT_SMART_CONFIG, resolveRouting } from "../../src/config/routing";
 import { resolveSandbox } from "../../src/config/sandbox";
+import { loadConfig } from "../helpers/trusted-config";
 
 let dir: string;
 beforeEach(async () => {

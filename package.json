@@ -1,6 +1,6 @@
 {
   "name": "cleetus",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Local-first agentic coding assistant for llama.cpp, LM Studio, and Ollama.",
   "license": "MIT",
   "author": "Common Cosmo",
@@ -42,6 +42,14 @@
     "ulid": "2.4.0",
     "yaml": "2.9.0",
     "zod": "3.25.76"
+  },
+  "overrides": {
+    "@hono/node-server": "1.19.15",
+    "body-parser": "2.3.0",
+    "fast-uri": "3.1.6",
+    "hono": "4.13.5",
+    "ip-address": "10.3.1",
+    "qs": "6.16.0"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",

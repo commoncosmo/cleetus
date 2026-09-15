@@ -4,19 +4,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RunnerDeps } from "../../../src/eval/runner";
 import type { RunRecord } from "../../../src/eval/types";
+import { approveProjectConfiguration } from "../../../src/security/project-trust";
 import { runEval } from "../../../src/ui/cli/eval";
 
-function project(configYaml?: string): string {
+const globalConfigPath = join(mkdtempSync(join(tmpdir(), "cleetus-cli-global-")), "config.yaml");
+
+async function project(configYaml?: string): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), "cleetus-eval-cli-"));
   if (configYaml) {
     mkdirSync(join(dir, ".cleetus"), { recursive: true });
     writeFileSync(join(dir, ".cleetus", "config.yaml"), configYaml);
   }
+  await approveProjectConfiguration({ projectDir: dir, globalPath: globalConfigPath });
   return dir;
 }
 
 test("fails closed (exit 3) when sandbox backend is not docker", async () => {
-  const dir = project(); // no config → backend defaults to host (still != docker → refuses)
+  const dir = await project(); // no config → backend defaults to host (still != docker → refuses)
   let err = "";
   // Point global config at a non-existent path so the user's real global config
   // (which may have backend: docker) doesn't bleed in.
@@ -25,14 +29,14 @@ test("fails closed (exit 3) when sandbox backend is not docker", async () => {
     writeErr: (s) => {
       err += s;
     },
-    globalConfigPath: join(dir, "no-global-config.yaml"),
+    globalConfigPath,
   });
   expect(code).toBe(3);
   expect(err).toContain("docker");
 });
 
 test("with docker configured but no scenarios → friendly note, exit 0", async () => {
-  const dir = project("sandbox:\n  backend: docker\n  image: bash:latest\n");
+  const dir = await project("sandbox:\n  backend: docker\n  image: bash:latest\n");
   let out = "";
   // Point global config at a non-existent path so only the project config applies.
   const code = await runEval(["eval"], dir, {
@@ -40,21 +44,21 @@ test("with docker configured but no scenarios → friendly note, exit 0", async 
       out += s;
     },
     writeErr: () => {},
-    globalConfigPath: join(dir, "no-global-config.yaml"),
+    globalConfigPath,
   });
   expect(code).toBe(0);
   expect(out.toLowerCase()).toContain("no scenarios");
 });
 
 test("docker backend with no image → refuses (exit 3)", async () => {
-  const dir = project("sandbox:\n  backend: docker\n");
+  const dir = await project("sandbox:\n  backend: docker\n");
   let err = "";
   const code = await runEval(["eval"], dir, {
     write: () => {},
     writeErr: (s) => {
       err += s;
     },
-    globalConfigPath: join(dir, "no-global.yaml"),
+    globalConfigPath,
   });
   expect(code).toBe(3);
   expect(err.toLowerCase()).toContain("image");
@@ -83,7 +87,7 @@ test("max_tool_loops: 0 in config reaches the runner as Infinity, not literal 0"
     },
   }));
 
-  const dir = project(
+  const dir = await project(
     [
       "sandbox:",
       "  backend: docker",
@@ -105,7 +109,7 @@ test("max_tool_loops: 0 in config reaches the runner as Infinity, not literal 0"
   const code = await runEval(["eval"], dir, {
     write: () => {},
     writeErr: () => {},
-    globalConfigPath: join(dir, "no-global.yaml"),
+    globalConfigPath,
   });
   expect(code).toBe(0);
   expect(captured).toBe(Number.POSITIVE_INFINITY);

@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { stringify as stringifyYaml } from "yaml";
 import type { CleetusConfig, ProviderConfig, ProviderType } from "../config/types";
 import { buildProvider } from "../providers/factory";
+import { privateDirectory, writePrivateFile } from "../security/private-state";
 
 export interface DetectedProvider {
   type: ProviderType;
@@ -91,18 +92,18 @@ export function writeDetectedConfig(
     default_provider: first?.type,
     default_model: first?.models[0],
   };
-  mkdirSync(globalDir, { recursive: true });
-  writeFileSync(path, stringifyYaml(doc));
+  privateDirectory(globalDir);
+  writePrivateFile(path, stringifyYaml(doc));
   return path;
 }
 
 /** Write a commented starter config.yaml + instructions.md (write-if-absent). Returns the config path. */
 export function scaffoldConfig(globalDir: string): string {
-  mkdirSync(globalDir, { recursive: true });
+  privateDirectory(globalDir);
   const configPath = join(globalDir, "config.yaml");
-  if (!existsSync(configPath)) writeFileSync(configPath, SCAFFOLD_CONFIG);
+  if (!existsSync(configPath)) writePrivateFile(configPath, SCAFFOLD_CONFIG);
   const instrPath = join(globalDir, "instructions.md");
-  if (!existsSync(instrPath)) writeFileSync(instrPath, SCAFFOLD_INSTRUCTIONS);
+  if (!existsSync(instrPath)) writePrivateFile(instrPath, SCAFFOLD_INSTRUCTIONS);
   return configPath;
 }
 

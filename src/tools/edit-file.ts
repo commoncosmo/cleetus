@@ -1,6 +1,7 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { appendRegion } from "./changed-region";
+import { guardedWrite } from "./guarded-write";
 import { nearMissHint } from "./near-miss";
 import { refuseIfSecretPath } from "./read-guard";
 import { applyReplacement } from "./replace";
@@ -61,7 +62,7 @@ export class EditFileTool implements Tool {
         }
         return { ok: false, errorCode: "TOOL_FAILED", errorMessage: msg };
       }
-      await writeFile(path, result.text);
+      await guardedWrite(path, result.text, ctx);
       const note = result.whitespaceTolerant ? ", matched ignoring indentation" : "";
       const base = `edited ${path} (${result.count} replacement${result.count === 1 ? "" : "s"}${note})`;
       return {
