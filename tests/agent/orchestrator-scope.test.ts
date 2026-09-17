@@ -289,6 +289,30 @@ test("an implementation task explicitly owning four UI source paths is oversized
   expect(reason).toContain("src/ui/d.tsx");
 });
 
+test("UI tests and application entrypoints do not inflate component ownership", () => {
+  const routerTask: PlanTask = {
+    ...tasks(1)[0]!,
+    title: "Shared Layout shell + App router + main.tsx entrypoint + router test",
+    description:
+      "Create src/Layout.tsx and src/App.tsx, wire src/main.tsx, and add src/App.test.tsx.",
+  };
+  const testTask: PlanTask = {
+    ...tasks(1)[0]!,
+    title: "Implement three product views with focused tests",
+    description:
+      "Create src/a.tsx, src/b.tsx, src/c.tsx, and src/c.test.tsx with interaction coverage.",
+  };
+  const entrypointTask: PlanTask = {
+    ...tasks(1)[0]!,
+    title: "Wire three components into the application entrypoint",
+    description: "Create src/a.tsx, src/b.tsx, src/c.tsx, and src/main.tsx.",
+  };
+
+  expect(oversizedUiTaskReason(routerTask)).toBeNull();
+  expect(oversizedUiTaskReason(testTask)).toBeNull();
+  expect(oversizedUiTaskReason(entrypointTask)).toBeNull();
+});
+
 test("plan quality rejects repository-wide gates in leaf acceptance", () => {
   const task: PlanTask = {
     ...tasks(1)[0]!,
