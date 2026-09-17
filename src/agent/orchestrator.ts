@@ -555,17 +555,29 @@ const UI_COMPONENT_TERMS = [
 const UI_OWNERSHIP_VERBS =
   /\b(?:add|build|create|extract|implement|refactor|replace|rewrite|split|wire)\b/;
 
+function isUiComponentPath(path: string): boolean {
+  if (/(?:^|\/)(?:tests?|__tests__)(?:\/|$)/.test(path)) return false;
+  if (/\.(?:test|spec)\.(?:tsx|jsx|vue|svelte)$/.test(path)) return false;
+  if (/(?:^|\/)src\/(?:main|index)\.(?:tsx|jsx|vue|svelte)$/.test(path)) return false;
+  return true;
+}
+
 /** Reject UI leaves whose owned surface area predictably exceeds one worker turn.
  *
  * Only the title is used for named surfaces. Descriptions routinely enumerate every picker and
  * prompt as compatibility constraints; treating those mentions as owned implementation work made
  * a reasonable decomposition impossible in the codex13 smoke run. Explicit source paths remain
- * strong evidence when the task also uses an implementation verb. */
+ * strong evidence when the task also uses an implementation verb. Test files and application
+ * entrypoints are supporting seams rather than independently owned UI components. */
 export function oversizedUiTaskReason(task: PlanTask): string | null {
   const title = task.title.toLowerCase();
   const text = `${title}\n${task.description.toLowerCase()}`;
   const paths = UI_OWNERSHIP_VERBS.test(text)
-    ? new Set(text.match(/(?:src|apps)\/[a-z0-9_./-]+\.(?:tsx|jsx|vue|svelte)/g) ?? [])
+    ? new Set(
+        (text.match(/(?:src|apps)\/[a-z0-9_./-]+\.(?:tsx|jsx|vue|svelte)/g) ?? []).filter(
+          isUiComponentPath,
+        ),
+      )
     : new Set<string>();
   const words = new Set(title.split(/[^a-z0-9-]+/u).filter(Boolean));
   const named = UI_COMPONENT_TERMS.filter((term) => words.has(term));
