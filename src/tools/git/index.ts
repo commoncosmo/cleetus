@@ -19,8 +19,9 @@ type Which = (bin: string) => string | null;
 
 /**
  * Build the git/PR tools to register, or none when projectDir is not a git repo.
- * `create_pr` is included only when `gh` is on PATH (else a warning). `which` is
- * injected for deterministic tests, mirroring run-tests' detect().
+ * `create_pr` checks for `gh` only when it is invoked, so an optional GitHub CLI
+ * dependency never produces an unrelated startup warning. `which` is injected for
+ * deterministic tests, mirroring run-tests' detect().
  */
 export async function buildGitTools(
   deps: { sandbox: Sandbox; projectDir: string; registerForAnyProject?: boolean },
@@ -42,11 +43,6 @@ export async function buildGitTools(
     new GitCommitTool(deps.sandbox),
     new GitPushTool(deps.sandbox),
   ];
-  const warnings: string[] = [];
-  if (which("gh")) {
-    tools.push(new CreatePrTool(deps.sandbox));
-  } else {
-    warnings.push("create_pr unavailable: 'gh' not found");
-  }
-  return { tools, warnings };
+  tools.push(new CreatePrTool(deps.sandbox, which));
+  return { tools, warnings: [] };
 }
