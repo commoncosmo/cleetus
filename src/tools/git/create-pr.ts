@@ -11,6 +11,8 @@ interface CreatePrArgs {
   draft?: boolean;
 }
 
+type Which = (bin: string) => string | null;
+
 export class CreatePrTool implements Tool {
   name = "create_pr";
   mutates = true;
@@ -29,7 +31,10 @@ export class CreatePrTool implements Tool {
     additionalProperties: false,
   };
 
-  constructor(private readonly sandbox: Sandbox) {}
+  constructor(
+    private readonly sandbox: Sandbox,
+    private readonly which: Which = (bin) => Bun.which(bin),
+  ) {}
 
   serialize(args: unknown): string {
     const a = args as CreatePrArgs;
@@ -40,6 +45,12 @@ export class CreatePrTool implements Tool {
   async run(args: unknown, ctx: ToolContext): Promise<ToolResult> {
     const a = args as CreatePrArgs;
     if (!a.title || a.title.trim() === "") return toolFail("create_pr needs a title");
+    if (!this.which("gh")) {
+      return toolFail(
+        "create_pr requires the GitHub CLI ('gh'), but it is not installed or not on PATH. " +
+          "Install gh, run 'gh auth login', then try again.",
+      );
+    }
 
     try {
       const branch = await currentBranch(this.sandbox, ctx);

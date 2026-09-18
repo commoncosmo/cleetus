@@ -63,6 +63,15 @@ describe("CreatePrTool", () => {
     expect(r.ok).toBe(false);
   });
 
+  test("missing gh → actionable error before any git operation", async () => {
+    const { sandbox, calls } = scriptedSandbox([]);
+    const r = await new CreatePrTool(sandbox, () => null).run({ title: "T" }, ctx);
+    expect(r.ok).toBe(false);
+    expect(r.errorMessage).toContain("GitHub CLI");
+    expect(r.errorMessage).toContain("gh auth login");
+    expect(calls).toEqual([]);
+  });
+
   test("gh failure surfaces gh's stderr (e.g. auth)", async () => {
     const routes = happyRoutes("feat/x", 0);
     routes[routes.length - 1] = {
