@@ -38,6 +38,36 @@ describe("stateful controller architecture risk", () => {
     }
   });
 
+  it("accepts the shared copy controller plan from the cleetus-web session", () => {
+    for (const text of [
+      "Astro dedupes component `<script>`s, so the script must bind via `data-copy-command` attributes across all instances (event delegation / `querySelectorAll`), never per-instance inline handlers.",
+      "Revised replacement plan — the copy behavior now lives in exactly one place, and no sibling ever holds script, handler, or state.",
+      "Seam decision: **Option A** (user-approved) — one component owns all copy behavior; no sibling ever holds script, handler, or state.",
+      "**Step 2 — Copy controller red→green, then the shared component + real hero.**",
+      "Copy-only — no runtime logic, so no unit tests (presentational exemption).",
+    ]) {
+      expect(findCopiedStatefulControllerRisk(text)).toBeNull();
+    }
+  });
+
+  it("accepts a single controller rendering a copy affordance", () => {
+    for (const text of [
+      "- `src/components/InstallCommand.astro` — the sole consumer of the controller and the sole renderer of a copy affordance.",
+      "- `InstallCommand.astro` renders the copy button and imports the shared controller.",
+      "The controller implements copy-to-clipboard behavior for the sole component.",
+      "If a second presentation is ever added (e.g. footer quick-copy), it must compose `InstallCommand.astro` or import the same controller — duplicating handlers/state into a sibling is prohibited by this plan.",
+      "A second component importing the controller, or any duplicated handler/state, has no path in this design.",
+    ]) {
+      expect(findCopiedStatefulControllerRisk(text)).toBeNull();
+    }
+  });
+
+  it("still catches an explicit copy of state into another component", () => {
+    expect(
+      findCopiedStatefulControllerRisk("1. Copy `useState` and the handlers into AltApp."),
+    ).not.toBeNull();
+  });
+
   it("inherits prohibition context from a Markdown heading", () => {
     for (const heading of [
       "## What this plan deliberately does NOT do",

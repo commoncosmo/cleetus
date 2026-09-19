@@ -86,6 +86,28 @@ class RepeatBashProvider implements Provider {
   }
 }
 
+class NumberedProbeProvider implements Provider {
+  calls = 0;
+  async listModels(): Promise<ModelInfo[]> {
+    return [{ id: "m" }];
+  }
+  async *chat(): AsyncGenerator<StreamEvent> {
+    this.calls++;
+    yield {
+      type: "tool-call",
+      call: {
+        id: `probe${this.calls}`,
+        name: "bash",
+        args: { command: `document.dispatchEvent(ev); console.log('replay${this.calls}:', result)` },
+      },
+    };
+    yield { type: "finish", reason: "tool-calls" };
+  }
+  async embed(): Promise<number[]> {
+    return [0];
+  }
+}
+
 const editFile: Tool = {
   name: "edit_file",
   description: "",
@@ -136,12 +158,13 @@ function makeRuntime(
   provider: Provider,
   loopGuard?: () => LoopGuardConfig,
   maxToolLoops: number | (() => number) = 20,
+  bashTool: Tool = failingBash,
 ): AgentRuntime {
   const providers = new ProviderRegistry();
   providers.register("lm", provider);
   const tools = new ToolRegistry();
   tools.register(editFile);
-  tools.register(failingBash);
+  tools.register(bashTool);
   return new AgentRuntime({
     providers,
     tools,
@@ -155,6 +178,31 @@ function makeRuntime(
     loopGuard,
   });
 }
+
+test("repeated successful numbered probes stop with recovery advice after warning", async () => {
+  const provider = new NumberedProbeProvider();
+  const bashTool: Tool = {
+    ...failingBash,
+    run: async (args): Promise<ToolResult> => {
+      const command = (args as { command: string }).command;
+      const label = command.match(/replay\d+/)?.[0];
+      return { ok: true, output: `${label}: {"after":"Copy install command"}` };
+    },
+  };
+  const runtime = makeRuntime(provider, () => DEFAULT_LOOP_GUARD, 30, bashTool);
+  const result = await runtime.runTurn("S", "diagnose copy button");
+
+  expect(provider.calls).toBe(16);
+  expect(result.stoppedReason).toBe("no_progress");
+  expect(result.assistantText).toContain("Save the original clicked element");
+  expect(result.assistantText).toContain("Existing work is preserved");
+  expect(
+    log
+      .query("S")
+      .filter((e) => e.type === "notice" && (e.payload as { kind?: string }).kind === "repeated_probe_warning")
+      .length,
+  ).toBe(1);
+});
 
 test("repeated edits past threshold inject ONE loop-warning and log a loop_guard notice", async () => {
   // DEFAULT_LOOP_GUARD.editRepeatThreshold = 5; drive a few steps past it.

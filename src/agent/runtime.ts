@@ -118,7 +118,7 @@ import {
   groundedSynthesisMessages,
   synthesisGroundingIssues,
 } from "./grounded-synthesis";
-import { LoopGuard } from "./loop-guard";
+import { LoopGuard, RepeatedProbeGuard, repeatedProbeRecoveryAdvice } from "./loop-guard";
 import {
   FORCE_PLAN_SYNTHESIS_PROMPT,
   PLAN_APPROVAL_MESSAGE,
@@ -2599,6 +2599,11 @@ export class AgentRuntime {
       let budgetWarned = false;
       let progressEpochAtBudgetBoundary = 0;
       let noProgressStop = false;
+      let repeatedProbeStop = 0;
+      let repeatedProbeAdvice = "";
+      const repeatedProbeGuard = new RepeatedProbeGuard(
+        Math.max(8, (this.opts.loopGuard?.().noProgressThreshold ?? 4) * 2),
+      );
       let noProgressGraceUsed = false;
       let thrashStop = false;
       let thrashSig: string | null = null;
@@ -5078,6 +5083,28 @@ export class AgentRuntime {
                 },
               });
             }
+            const probe = repeatedProbeGuard.observe(
+              { name: call.name, args: call.args },
+              { ok: result.ok, output: result.output },
+            );
+            if (probe?.kind === "warn") {
+              const message =
+                `The last ${probe.count} numbered diagnostic probes returned the same result. ` +
+                "Stop changing only the probe label. Compare the result with the expected behavior, " +
+                "then change the implementation or test, run a materially different check, or report what remains unresolved.";
+              entry.content = `${entry.content}\n\n<loop-warning>\n${message}\n</loop-warning>`;
+              log.append({
+                sessionId,
+                type: "notice",
+                payload: { text: message, level: "warn", kind: "repeated_probe_warning" },
+              });
+            } else if (probe?.kind === "stop") {
+              repeatedProbeStop = probe.count;
+              repeatedProbeAdvice = repeatedProbeRecoveryAdvice(
+                String((call.args as { command?: unknown } | null)?.command ?? ""),
+              );
+              break;
+            }
             if (thrashRepeats > 0) {
               const sig = guard.thrashedSignature(thrashRepeats);
               if (sig) {
@@ -5314,7 +5341,7 @@ export class AgentRuntime {
           break;
         }
 
-        if (thrashStop || hiddenStop) break;
+        if (thrashStop || hiddenStop || repeatedProbeStop > 0) break;
 
         if (workerNoProgress > 0 && tokensSinceLastEdit >= workerNoProgress) {
           if (!noProgressGraceUsed) {
@@ -5465,7 +5492,10 @@ export class AgentRuntime {
         } else if (noProgressStop) {
           stoppedReason = "no_progress";
           const k = Math.round(tokensSinceLastEdit / 1000);
-          const note = `Stopped: two full inspection budgets elapsed without a file change (last window ~${k}k tokens) — no durable progress.`;
+          const note =
+            `Stopped: two full inspection budgets elapsed without a file change (last window ~${k}k tokens) — no durable progress. Existing work is preserved. ` +
+            "To continue, use the evidence already gathered to make one targeted change and run a focused check. " +
+            "If the blocker is still unclear, report the observed result, the expected result, and the next experiment instead of repeating the same inspection.";
           // No synthesis call — it would add spend to a turn we are bailing on for
           // spending without landing edits.
           history.push({ role: "assistant", content: note });
@@ -5473,6 +5503,18 @@ export class AgentRuntime {
             sessionId,
             type: "assistant_message",
             payload: { text: note, stoppedReason: "no_progress" },
+          });
+          assistantText = note;
+        } else if (repeatedProbeStop > 0) {
+          stoppedReason = "no_progress";
+          const note =
+            `Stopped: ${repeatedProbeStop} numbered diagnostic probes returned the same result without an intervening change. Existing work is preserved. ` +
+            `Suggested fix: ${repeatedProbeAdvice}`;
+          history.push({ role: "assistant", content: note });
+          log.append({
+            sessionId,
+            type: "assistant_message",
+            payload: { text: note, stoppedReason },
           });
           assistantText = note;
         } else if (budgetExhausted) {
