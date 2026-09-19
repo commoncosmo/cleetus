@@ -63,7 +63,8 @@ export function signatureOf(name: string, args: unknown, projectRoot?: string): 
  * only by a numbered label and whose visible results are otherwise identical. This deliberately
  * does not count ordinary inspection commands or outputs whose value changes. Scoped to one turn. */
 export class RepeatedProbeGuard {
-  private previous: { command: string; family: string; result: string; count: number } | null = null;
+  private previous: { command: string; family: string; result: string; count: number } | null =
+    null;
 
   constructor(private readonly warningAt: number) {}
 

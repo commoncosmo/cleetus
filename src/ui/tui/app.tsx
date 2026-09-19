@@ -990,9 +990,7 @@ export function App(props: AppProps) {
         context: revisionContext,
         optionsOffered: true,
       };
-      const rejectionMessage =
-        `Plan needs revision before approval: ${architectureRisk} ` +
-        "Reply with a revised numbered plan to try again, or use /mode normal to leave plan mode.";
+      const rejectionMessage = `Plan needs revision before approval: ${architectureRisk} Reply with a revised numbered plan to try again, or use /mode normal to leave plan mode.`;
       props.log.append({
         sessionId,
         type: "notice",

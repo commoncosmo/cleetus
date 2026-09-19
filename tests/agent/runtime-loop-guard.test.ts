@@ -98,7 +98,9 @@ class NumberedProbeProvider implements Provider {
       call: {
         id: `probe${this.calls}`,
         name: "bash",
-        args: { command: `document.dispatchEvent(ev); console.log('replay${this.calls}:', result)` },
+        args: {
+          command: `document.dispatchEvent(ev); console.log('replay${this.calls}:', result)`,
+        },
       },
     };
     yield { type: "finish", reason: "tool-calls" };
@@ -199,8 +201,10 @@ test("repeated successful numbered probes stop with recovery advice after warnin
   expect(
     log
       .query("S")
-      .filter((e) => e.type === "notice" && (e.payload as { kind?: string }).kind === "repeated_probe_warning")
-      .length,
+      .filter(
+        (e) =>
+          e.type === "notice" && (e.payload as { kind?: string }).kind === "repeated_probe_warning",
+      ).length,
   ).toBe(1);
 });
 

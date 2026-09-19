@@ -5088,10 +5088,7 @@ export class AgentRuntime {
               { ok: result.ok, output: result.output },
             );
             if (probe?.kind === "warn") {
-              const message =
-                `The last ${probe.count} numbered diagnostic probes returned the same result. ` +
-                "Stop changing only the probe label. Compare the result with the expected behavior, " +
-                "then change the implementation or test, run a materially different check, or report what remains unresolved.";
+              const message = `The last ${probe.count} numbered diagnostic probes returned the same result. Stop changing only the probe label. Compare the result with the expected behavior, then change the implementation or test, run a materially different check, or report what remains unresolved.`;
               entry.content = `${entry.content}\n\n<loop-warning>\n${message}\n</loop-warning>`;
               log.append({
                 sessionId,
@@ -5492,10 +5489,7 @@ export class AgentRuntime {
         } else if (noProgressStop) {
           stoppedReason = "no_progress";
           const k = Math.round(tokensSinceLastEdit / 1000);
-          const note =
-            `Stopped: two full inspection budgets elapsed without a file change (last window ~${k}k tokens) — no durable progress. Existing work is preserved. ` +
-            "To continue, use the evidence already gathered to make one targeted change and run a focused check. " +
-            "If the blocker is still unclear, report the observed result, the expected result, and the next experiment instead of repeating the same inspection.";
+          const note = `Stopped: two full inspection budgets elapsed without a file change (last window ~${k}k tokens) — no durable progress. Existing work is preserved. To continue, use the evidence already gathered to make one targeted change and run a focused check. If the blocker is still unclear, report the observed result, the expected result, and the next experiment instead of repeating the same inspection.`;
           // No synthesis call — it would add spend to a turn we are bailing on for
           // spending without landing edits.
           history.push({ role: "assistant", content: note });
