@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { LoopGuard, signatureOf } from "../../src/agent/loop-guard";
+import {
+  LoopGuard,
+  RepeatedProbeGuard,
+  repeatedProbeRecoveryAdvice,
+  signatureOf,
+} from "../../src/agent/loop-guard";
 import { DEFAULT_LOOP_GUARD } from "../../src/config/loop-guard";
 
 const cfg = DEFAULT_LOOP_GUARD;
@@ -10,6 +15,59 @@ const todoCall = (titles: string[]) => ({
   args: { todos: titles.map((t) => ({ content: t, status: "pending" })) },
 });
 const readCall = (path: string) => ({ name: "read_file", args: { path } });
+
+test("numbered diagnostic probes warn, then stop only after a second unchanged stretch", () => {
+  const guard = new RepeatedProbeGuard(8);
+  const observe = (n: number, value = '"after":"Copy install command"') =>
+    guard.observe(
+      { name: "bash", args: { command: `console.log('replay${n}:', result)` } },
+      { ok: true, output: `replay${n}: {${value}}` },
+    );
+  for (let n = 1; n < 8; n++) expect(observe(n)).toBeNull();
+  expect(observe(8)).toEqual({ kind: "warn", count: 8 });
+  for (let n = 9; n < 16; n++) expect(observe(n)).toBeNull();
+  expect(observe(16)).toEqual({ kind: "stop", count: 16 });
+});
+
+test("numbered diagnostic probes reset on a changed result or successful edit", () => {
+  const guard = new RepeatedProbeGuard(8);
+  const probe = (n: number, value: string) =>
+    guard.observe(
+      { name: "bash", args: { command: `console.log('replay${n}:', result)` } },
+      { ok: true, output: `replay${n}: ${value}` },
+    );
+  for (let n = 1; n <= 7; n++) expect(probe(n, "unchanged")).toBeNull();
+  expect(probe(8, "changed")).toBeNull();
+  expect(
+    guard.observe({ name: "edit_file", args: { path: "src/app.ts" } }, { ok: true }),
+  ).toBeNull();
+  for (let n = 9; n <= 15; n++) expect(probe(n, "changed")).toBeNull();
+});
+
+test("ordinary commands and changing probe values do not trigger the numbered probe guard", () => {
+  const guard = new RepeatedProbeGuard(8);
+  for (let n = 1; n <= 20; n++) {
+    expect(
+      guard.observe(
+        { name: "bash", args: { command: `cat src/file${n}.ts` } },
+        { ok: true, output: "same file content" },
+      ),
+    ).toBeNull();
+    expect(
+      guard.observe(
+        { name: "bash", args: { command: `console.log('probe${n}:', result)` } },
+        { ok: true, output: `probe${n}: value ${n}` },
+      ),
+    ).toBeNull();
+  }
+});
+
+test("repeated probe advice identifies an event replay defect when the command shows one", () => {
+  expect(repeatedProbeRecoveryAdvice("document.dispatchEvent(ev)")).toContain(
+    "Save the original clicked element",
+  );
+  expect(repeatedProbeRecoveryAdvice("console.log(result)")).toContain("test assertion");
+});
 
 test("signatureOf keys edits by path and commands by normalized text; tracks reads", () => {
   expect(signatureOf("edit_file", { path: "/p/a.ts" })).toBe("edit:/p/a.ts");

@@ -17,15 +17,24 @@ function isNegatedOrRejected(line: string): boolean {
     /\b(?:cop|re-cop|replicat|duplicat|mirror)\w*\b.{0,120}\b(?:would(?:\s+be)?|creates?|causes?|leads?\s+to|risks?)\b.{0,60}\b(?:behavior\s+fork|fork|drift|anti-pattern|problem|risk)/;
   const rejectedHeading =
     /\b(?:why\s+not|rejected|do\s+not\s+use|instead\s+of)\b.{0,120}\b(?:cop|re-cop|replicat|duplicat|mirror)/;
+  const prohibitedAction =
+    /\b(?:cop|re-cop|replicat|duplicat|mirror)\w*\b.{0,120}\b(?:is\s+prohibited|are\s+prohibited|is\s+forbidden|are\s+forbidden|has\s+no\s+path|is\s+not\s+allowed|are\s+not\s+allowed)\b/;
   return (
     negativeBeforeCopy.test(line) ||
     negatedPassive.test(line) ||
     namedAntiPattern.test(line) ||
-    rejectedHeading.test(line)
+    rejectedHeading.test(line) ||
+    prohibitedAction.test(line)
   );
 }
 
 function isActiveDesignCommitment(line: string): boolean {
+  // Require the stateful thing to be the object of the copy action. A plan can
+  // describe a controller and later call its UI a "copy affordance" or "copy
+  // button"; proximity alone does not make that an instruction to clone code.
+  const copyWithStatefulObject =
+    /\b(?:cop(?:y|ies|ied|ying)|re-cop(?:y|ies|ied|ying)|replicat(?:e|es|ed|ing)|duplicat(?:e|es|ed|ing)|mirror(?:s|ed|ing)?)\b.{0,80}\b(?:inline\s+state|state\s+shape|state\s+block|stateful|hooks?|handlers?|controller|runtime\s+logic|submission\s+logic|permission\s+logic)\b/;
+  if (!copyWithStatefulObject.test(line)) return false;
   const imperative =
     /^(?:#{1,6}\s*)?(?:(?:step|task)\s*\d+\s*[:.)-]?\s*|\d+[.)]\s*|[-*]\s*)?(?:cop|re-cop|replicat|duplicat|mirror)\w*\b/;
   const namedSubject =
@@ -89,7 +98,19 @@ export function findCopiedStatefulControllerRisk(text: string): StatefulControll
   for (const line of candidates) {
     // "mascot, copy, and badge" lists page content. Here copy is a noun, not an
     // instruction to duplicate the controller mentioned elsewhere in the sentence (ccweb3).
-    const lower = line.toLowerCase().replace(/,\s*copy\s*,/g, ", prose,");
+    const lower = line
+      .toLowerCase()
+      .replace(/,\s*copy\s*,/g, ", prose,")
+      .replace(/\bcopy-only\b/g, "prose-only")
+      // Identifiers such as data-copy-command name clipboard UI, not an action
+      // to duplicate code. Keep other inline code so copying useState is detected.
+      .replace(/`[^`]*`/g, (code) => code.replace(/\bcopy\b/g, "clipboard"))
+      // "the copy behavior lives in one component" describes ownership. It is
+      // distinct from the imperative "copy behavior into another component".
+      .replace(/\b(?:the|all|shared|same|single)\s+copy\s+behavior\b/g, "clipboard behavior")
+      // A test-driven step named "Copy controller red→green" is the name of
+      // the clipboard controller being built, not a direction to clone one.
+      .replace(/\bcopy\s+controller\s+red\s*→\s*green\b/g, "clipboard controller red→green");
     if (!COPY_VERB.test(lower) || !STATEFUL_TARGET.test(lower)) continue;
     if (isNegatedOrRejected(lower) || !isActiveDesignCommitment(lower)) continue;
     return {

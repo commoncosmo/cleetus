@@ -59,6 +59,57 @@ export function signatureOf(name: string, args: unknown, projectRoot?: string): 
   return null;
 }
 
+/** Catch a narrow diagnostic loop: successive successful shell probes whose commands differ
+ * only by a numbered label and whose visible results are otherwise identical. This deliberately
+ * does not count ordinary inspection commands or outputs whose value changes. Scoped to one turn. */
+export class RepeatedProbeGuard {
+  private previous: { command: string; family: string; result: string; count: number } | null =
+    null;
+
+  constructor(private readonly warningAt: number) {}
+
+  observe(
+    call: { name: string; args: unknown },
+    outcome: { ok: boolean; output?: string },
+  ): { kind: "warn" | "stop"; count: number } | null {
+    if (EDIT_TOOLS.has(call.name) && outcome.ok) {
+      this.previous = null;
+      return null;
+    }
+    const command = (call.args as { command?: unknown } | null)?.command;
+    if (call.name !== "bash" || !outcome.ok || typeof command !== "string") {
+      this.previous = null;
+      return null;
+    }
+    const family = command.replace(/\b([A-Za-z_][\w-]*?)\d+(?=:)/g, "$1#");
+    const output = outcome.output?.replace(/^\s*[A-Za-z_][\w-]*?\d+:\s*/, "").trim();
+    if (family === command || !output || output === outcome.output?.trim()) {
+      this.previous = null;
+      return null;
+    }
+    const previous = this.previous;
+    const count =
+      previous &&
+      previous.family === family &&
+      previous.result === output &&
+      previous.command !== command
+        ? previous.count + 1
+        : 1;
+    this.previous = { command, family, result: output, count };
+    if (count === this.warningAt) return { kind: "warn", count };
+    if (count === this.warningAt * 2) return { kind: "stop", count };
+    return null;
+  }
+}
+
+/** Give a specific recovery lead when the repeated probe itself exposes a likely test defect. */
+export function repeatedProbeRecoveryAdvice(command: string): string {
+  if (/\bdocument\.dispatchEvent\s*\(/.test(command)) {
+    return "This probe re-dispatches an event on document, which changes its target. Save the original clicked element and call the shared handler with it, or dispatch a new event on that element; then test the early-click path once.";
+  }
+  return "Inspect the code path and test assertion once, make one hypothesis-driven change, then run one focused check. If the result still repeats, report the observed and expected values as an unresolved limitation.";
+}
+
 interface WindowEntry {
   signature: string;
   ok: boolean;
