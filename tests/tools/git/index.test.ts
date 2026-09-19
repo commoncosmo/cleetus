@@ -41,14 +41,14 @@ describe("buildGitTools", () => {
     expect(warnings).toEqual([]);
   });
 
-  test("repo without gh → six tools + a warning, no create_pr", async () => {
+  test("repo without gh → all seven tools and no startup warning", async () => {
     const { tools, warnings } = await buildGitTools(
       { sandbox: repoSandbox(), projectDir: "/proj" },
       () => null,
     );
-    expect(names(tools)).not.toContain("create_pr");
-    expect(tools.length).toBe(6);
-    expect(warnings).toEqual(["create_pr unavailable: 'gh' not found"]);
+    expect(names(tools)).toContain("create_pr");
+    expect(tools.length).toBe(7);
+    expect(warnings).toEqual([]);
   });
 
   test("ACP-style registration keeps git tools available for a later session cwd", async () => {
