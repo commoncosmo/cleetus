@@ -2,38 +2,31 @@ import { describe, expect, test } from "bun:test";
 import { buildGitTools } from "../../../src/tools/git/index";
 import { scriptedSandbox } from "../../git/helpers";
 
-const repoSandbox = () =>
-  scriptedSandbox([
-    { match: "rev-parse --is-inside-work-tree", result: { exitCode: 0, stdout: "true\n" } },
-  ]).sandbox;
-
-const nonRepoSandbox = () =>
-  scriptedSandbox([
-    { match: "rev-parse --is-inside-work-tree", result: { exitCode: 128, stderr: "not a repo" } },
-  ]).sandbox;
-
 const names = (tools: { name: string }[]) => tools.map((t) => t.name).sort();
 
 describe("buildGitTools", () => {
-  test("non-repo → no tools, no warnings", async () => {
+  test("non-repo → initialization and Git tools are available, with no warnings", async () => {
     const { tools, warnings } = await buildGitTools(
-      { sandbox: nonRepoSandbox(), projectDir: "/proj" },
+      { sandbox: scriptedSandbox([]).sandbox, projectDir: "/proj" },
       () => "/usr/bin/gh",
     );
-    expect(tools).toEqual([]);
+    expect(names(tools)).toContain("git_init");
+    expect(names(tools)).toContain("create_github_repo");
     expect(warnings).toEqual([]);
   });
 
-  test("repo with gh → all seven tools", async () => {
+  test("Git tool roster has all nine operations", async () => {
     const { tools, warnings } = await buildGitTools(
-      { sandbox: repoSandbox(), projectDir: "/proj" },
+      { sandbox: scriptedSandbox([]).sandbox, projectDir: "/proj" },
       () => "/usr/bin/gh",
     );
     expect(names(tools)).toEqual([
+      "create_github_repo",
       "create_pr",
       "git_add",
       "git_commit",
       "git_diff",
+      "git_init",
       "git_log",
       "git_push",
       "git_status",
@@ -41,25 +34,14 @@ describe("buildGitTools", () => {
     expect(warnings).toEqual([]);
   });
 
-  test("repo without gh → all seven tools and no startup warning", async () => {
+  test("missing gh does not hide GitHub tools or emit a startup warning", async () => {
     const { tools, warnings } = await buildGitTools(
-      { sandbox: repoSandbox(), projectDir: "/proj" },
+      { sandbox: scriptedSandbox([]).sandbox, projectDir: "/proj" },
       () => null,
     );
     expect(names(tools)).toContain("create_pr");
-    expect(tools.length).toBe(7);
+    expect(names(tools)).toContain("create_github_repo");
+    expect(tools.length).toBe(9);
     expect(warnings).toEqual([]);
-  });
-
-  test("ACP-style registration keeps git tools available for a later session cwd", async () => {
-    const { tools } = await buildGitTools(
-      {
-        sandbox: nonRepoSandbox(),
-        projectDir: "/launch-directory",
-        registerForAnyProject: true,
-      },
-      () => "/usr/bin/gh",
-    );
-    expect(names(tools)).toContain("git_status");
   });
 });

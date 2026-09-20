@@ -129,7 +129,7 @@ export async function registerAcpTools(input: {
     );
   }
 
-  const git = await buildGitTools({ sandbox, projectDir, registerForAnyProject: true });
+  const git = await buildGitTools({ sandbox, projectDir });
   warnings.push(...git.warnings);
   for (const tool of git.tools) tools.register(tool);
 
