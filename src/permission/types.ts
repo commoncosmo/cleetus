@@ -38,10 +38,12 @@ export const BUILTIN_DEFAULTS: Record<string, Decision> = {
   git_diff: "allow",
   git_log: "allow",
   run_workflow: "allow",
+  git_init: "ask",
   git_add: "ask",
   git_commit: "ask",
   git_push: "ask",
   create_pr: "ask",
+  create_github_repo: "ask",
   task: "ask",
 };
 

@@ -57,10 +57,12 @@ describe("evaluatePermission", () => {
     expect(evaluatePermission(empty, "git_diff", "")).toBe("allow");
     expect(evaluatePermission(empty, "git_log", "")).toBe("allow");
     // permission-gated write/PR tools
+    expect(evaluatePermission(empty, "git_init", "")).toBe("ask");
     expect(evaluatePermission(empty, "git_add", "")).toBe("ask");
     expect(evaluatePermission(empty, "git_commit", "")).toBe("ask");
     expect(evaluatePermission(empty, "git_push", "")).toBe("ask");
     expect(evaluatePermission(empty, "create_pr", "")).toBe("ask");
+    expect(evaluatePermission(empty, "create_github_repo", "")).toBe("ask");
   });
 
   it("deny beats allow within the same layer, regardless of order", () => {

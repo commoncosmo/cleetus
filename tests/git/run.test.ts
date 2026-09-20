@@ -11,6 +11,8 @@ describe("runGit", () => {
     expect(calls[0]!.command).toBe("git commit -m 'a b'");
     expect(calls[0]!.opts.cwd).toBe("/proj");
     expect(calls[0]!.opts.signal).toBe(ctx.abortSignal);
+    // Trusted Git tools need to update .git; Bash alone requests this extra protection.
+    expect(calls[0]!.opts.protectProjectMetadata).toBeUndefined();
     expect(r).toMatchObject({ exitCode: 0, stdout: "ok" });
   });
 
