@@ -93,8 +93,10 @@ Installs the latest signed + notarized release to `~/.local/bin`. Options (env v
 - `CLEETUS_INSTALL_DIR=/path/to/bin` — install somewhere else.
 - `CLEETUS_VERSION=0.1.1` — pin a specific version instead of the latest.
 
-The installer verifies the download against the published `checksums.txt`. If
-`~/.local/bin` is not on your `PATH`, the installer prints the line to add.
+The installer verifies the download against the published `checksums.txt`. On
+macOS, it then ad-hoc re-signs the local copy so macOS does not reject the
+copied Mach-O at launch. If `~/.local/bin` is not on your `PATH`, the installer
+prints the line to add.
 
 The Quickstart below is for developing cleetus from source.
 

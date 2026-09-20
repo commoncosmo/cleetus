@@ -1,6 +1,6 @@
 {
   "name": "cleetus",
-  "version": "0.5.5",
+  "version": "0.5.6",
   "description": "Local-first agentic coding assistant for llama.cpp, LM Studio, and Ollama.",
   "license": "MIT",
   "author": "Common Cosmo",
