@@ -96,14 +96,27 @@ verify_checksum() {
   fi
 }
 
-# Install src binary ($1) into dir ($2) as an executable `cleetus`. Echo the dest path.
+# Re-sign a copied Mach-O in place on macOS. Copying a signed executable can make
+# taskgated reject it at launch even when static `codesign --verify` succeeds.
+resign_macos_binary() {
+  _dest="$1"
+  _os="$2"
+  [ "$_os" = "darwin" ] || return 0
+  command -v codesign >/dev/null 2>&1 || die "codesign is required to install Cleetus on macOS"
+  codesign --force --sign - "$_dest" || die "cannot re-sign installed binary: $_dest"
+}
+
+# Install src binary ($1) into dir ($2) as an executable `cleetus`. OS ($3) controls
+# the macOS re-sign step. Echo the dest path.
 install_binary() {
   _src="$1"
   _dir="$2"
+  _os="$3"
   mkdir -p "$_dir" || die "cannot create install directory: $_dir"
   _dest="$_dir/cleetus"
   cp "$_src" "$_dest" || die "cannot copy binary to $_dest"
   chmod 755 "$_dest" || die "cannot make $_dest executable"
+  resign_macos_binary "$_dest" "$_os"
   echo "$_dest"
 }
 
@@ -138,7 +151,7 @@ main() {
   verify_checksum "$_tmp/$_asset" "$_asset" "$_tmp/checksums.txt"
 
   _dir="${CLEETUS_INSTALL_DIR:-$HOME/.local/bin}"
-  _dest="$(install_binary "$_tmp/$_asset" "$_dir")"
+  _dest="$(install_binary "$_tmp/$_asset" "$_dir" "$_os")"
   printf '%s\n' "cleetus install: installed $_dest" >&2
 
   check_path "$_dir" "${PATH:-}"

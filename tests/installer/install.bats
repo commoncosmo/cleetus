@@ -218,18 +218,50 @@ _make_fixture() {
 @test "install_binary copies to <dir>/cleetus, executable, and echoes the path" {
   printf 'binary\n' > "$STUB_DIR/src"
   dest_dir="$STUB_DIR/bin"
-  run install_binary "$STUB_DIR/src" "$dest_dir"
+  run install_binary "$STUB_DIR/src" "$dest_dir" linux
   [ "$status" -eq 0 ]
   [ "$output" = "$dest_dir/cleetus" ]
   [ -x "$dest_dir/cleetus" ]
   [ "$(cat "$dest_dir/cleetus")" = "binary" ]
 }
 
+@test "install_binary ad-hoc re-signs copied binaries on macOS" {
+  printf 'binary\n' > "$STUB_DIR/src"
+  dest_dir="$STUB_DIR/bin"
+  cat > "$STUB_DIR/codesign" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" > "$CODESIGN_LOG"
+EOF
+  chmod +x "$STUB_DIR/codesign"
+
+  run env PATH="$STUB_DIR:$PATH" CODESIGN_LOG="$STUB_DIR/codesign.log" bash -c \
+    "source '$REPO_ROOT/install.sh'; install_binary '$STUB_DIR/src' '$dest_dir' darwin"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "$dest_dir/cleetus" ]
+  [ "$(cat "$STUB_DIR/codesign.log")" = "--force --sign - $dest_dir/cleetus" ]
+}
+
+@test "install_binary fails closed when the macOS re-sign fails" {
+  printf 'binary\n' > "$STUB_DIR/src"
+  cat > "$STUB_DIR/codesign" <<'EOF'
+#!/bin/sh
+exit 1
+EOF
+  chmod +x "$STUB_DIR/codesign"
+
+  run env PATH="$STUB_DIR:$PATH" bash -c \
+    "source '$REPO_ROOT/install.sh'; install_binary '$STUB_DIR/src' '$STUB_DIR/bin' darwin"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"cannot re-sign installed binary"* ]]
+}
+
 @test "install_binary dies when the destination dir cannot be created" {
   printf 'binary\n' > "$STUB_DIR/src"
   # A regular file where a directory is expected makes mkdir -p fail.
   printf 'x\n' > "$STUB_DIR/blocker"
-  run install_binary "$STUB_DIR/src" "$STUB_DIR/blocker/sub"
+  run install_binary "$STUB_DIR/src" "$STUB_DIR/blocker/sub" linux
   [ "$status" -eq 1 ]
   [[ "$output" == *"cannot create install directory"* ]]
 }
