@@ -39,7 +39,7 @@ export function parseAcpOptions(argv: string[]): AcpCliOptions {
       "--session-db <path>",
       "use a specific session database file (overrides the per-directory default)",
     )
-    .option("--persona <id>", "system-prompt persona: coding | chat | concise | general")
+    .option("--persona <id>", "system-prompt persona: coding | chat | concise | general | security")
     .option("--personality <id>", "voice overlay: neutral | cleetus | bofh")
     .option("--effort <level>", "reasoning effort: low | medium | high")
     .option("--instructions <path>", "load a system-prompt instructions file from an explicit path")

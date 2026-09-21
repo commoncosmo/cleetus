@@ -56,6 +56,13 @@ describe("/persona", () => {
     expect(out).toMatch(/persona: chat/);
   });
 
+  it("switches to security by prefix", async () => {
+    const { reg, getId } = setup("coding");
+    const out = await run(reg, "sec");
+    expect(getId()).toBe("security");
+    expect(out).toMatch(/persona: security/);
+  });
+
   it("errors on an unknown persona and lists valid ids", async () => {
     const { reg, getId } = setup("coding");
     const out = await run(reg, "wizard");

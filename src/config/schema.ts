@@ -352,7 +352,7 @@ export const RawConfigSchema = z.object({
   global_workspace_dir: z.string().optional(),
   permissions_disabled: z.boolean().optional(),
   max_tool_loops: z.number().int().nonnegative().optional(),
-  default_persona: z.enum(["coding", "chat", "concise", "general"]).optional(),
+  default_persona: z.enum(["coding", "chat", "concise", "general", "security"]).optional(),
   default_effort: z.enum(["low", "medium", "high", "xhigh"]).optional(),
   default_personality: z.enum(["neutral", "cleetus", "bofh"]).optional(),
   personality_correction: z.boolean().optional(),

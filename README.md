@@ -188,7 +188,7 @@ embeddings are set).
 | `/model [name]` | Switch the active model; no arg opens the picker. Use `/model <provider> <name>` when a name exists on several providers |
 | `/route [mode]` | Switch model routing: `manual` / `speed` / `smart`; no arg shows status |
 | `/effort [level]` | Switch reasoning effort: `low` / `medium` / `high` / `xhigh`; no arg opens a picker |
-| `/persona [id]` | Switch the system-prompt persona: `coding` / `chat` / `concise` / `general`; no arg shows status |
+| `/persona [id]` | Switch the system-prompt persona: `coding` / `chat` / `concise` / `general` / `security`; no arg shows status |
 | `/personality [id]` | Switch the voice overlay: `neutral` / `cleetus` / `bofh`; no arg shows status |
 | `/maxloops [n\|unlimited]` | Set the model-round safety limit for this session; no arg shows it. The default is unlimited. |
 
@@ -259,7 +259,7 @@ interactive TUI.
 | `--orchestrator-provider <name>` / `--orchestrator-model <name>` | override the orchestration planner |
 | `--worker-provider <name>` / `--worker-model <name>` | override the orchestration workers |
 | `--max-loops <n>` | max model round-trips per turn before pausing (`0` = unlimited; default unlimited) |
-| `--persona <id>` | system-prompt persona: `coding` \| `chat` \| `concise` \| `general` |
+| `--persona <id>` | system-prompt persona: `coding` \| `chat` \| `concise` \| `general` \| `security` |
 | `--effort <level>` | reasoning effort: `low` \| `medium` \| `high` \| `xhigh` |
 | `--personality <id>` | voice overlay: `neutral` \| `cleetus` \| `bofh` |
 | `--verbose` | show warning and internal diagnostic notices normally retained only in the session log |
@@ -330,7 +330,7 @@ default_provider: lm          # optional; disambiguates a model name found on >1
 # Session defaults
 permissions_disabled: false   # true = never prompt for tool use (same as --fuckit)
 max_tool_loops: 0             # optional safety limit; 0 = unlimited (the default)
-default_persona: coding       # coding | chat | concise | general
+default_persona: coding       # coding | chat | concise | general | security
 default_effort: medium        # low | medium | high | xhigh
 default_personality: neutral  # neutral | cleetus | bofh
 personality_correction: false # true = re-emit prose in the active voice when a draft missed it (extra model call)
@@ -508,7 +508,7 @@ ui:
 | `embeddings` | unset (disabled) | `{ provider, model }` for the vector store powering `/index` + `code_search`. |
 | `permissions_disabled` | `false` | `true` disables all permission prompts (same as `--fuckit`). |
 | `max_tool_loops` | `0` | Optional model round-trip safety limit; `0` means unlimited. |
-| `default_persona` | `coding` | System-prompt persona: `coding`/`chat`/`concise`/`general`. |
+| `default_persona` | `coding` | System-prompt persona: `coding`/`chat`/`concise`/`general`/`security`. Security is review-first and evidence-based; it does not change permissions or sandbox enforcement. |
 | `default_effort` | `medium` | Reasoning effort dial: `low`/`medium`/`high`/`xhigh` (`xhigh` is honored only by models that support it, e.g. Muse; elsewhere it clamps to `high`). |
 | `default_personality` | `neutral` | Voice overlay: `neutral`/`cleetus`/`bofh`. |
 | `personality_correction` | `false` | When `true`, a non-neutral personality runs a bounded prose-only rewrite pass (one extra model call) if the finished draft lacks the active voice. Off by default; the overlay and per-turn reminder still apply the voice on the first pass. |
