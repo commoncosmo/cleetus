@@ -160,6 +160,13 @@ describe("loadConfig", () => {
     expect(cfg.defaultPersona).toBe("chat");
   });
 
+  it("parses security as the default_persona", async () => {
+    const path = join(dir, "config.yaml");
+    await writeFile(path, "default_persona: security\n");
+    const cfg = await loadConfig({ globalPath: path, projectDir: dir });
+    expect(cfg.defaultPersona).toBe("security");
+  });
+
   it("lets project default_persona override global", async () => {
     const global = join(dir, "global.yaml");
     await writeFile(global, "default_persona: chat\n");

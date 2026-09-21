@@ -302,7 +302,7 @@ async function main(argv: string[]): Promise<number> {
       "--max-loops <n>",
       "optional model round-trip limit per turn (0 = unlimited; default unlimited)",
     )
-    .option("--persona <id>", "system-prompt persona: coding | chat | concise | general")
+    .option("--persona <id>", "system-prompt persona: coding | chat | concise | general | security")
     .option("--effort <level>", "reasoning effort: low | medium | high")
     .option("--personality <id>", "voice overlay: neutral | cleetus | bofh")
     .option("--verbose", "show warning and internal diagnostic notices")

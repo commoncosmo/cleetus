@@ -171,7 +171,7 @@ export interface CleetusConfig {
   globalWorkspaceDir?: string;
   permissionsDisabled?: boolean;
   maxToolLoops: number;
-  defaultPersona: "coding" | "chat" | "concise" | "general";
+  defaultPersona: "coding" | "chat" | "concise" | "general" | "security";
   defaultEffort: EffortLevel;
   defaultPersonality: "neutral" | "cleetus" | "bofh";
   /** When true, a non-neutral personality runs a bounded prose-only rewrite pass (one extra

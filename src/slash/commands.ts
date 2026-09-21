@@ -747,7 +747,7 @@ export function buildCommandRegistry(deps: CommandDeps): CommandRegistry {
     reg.register({
       name: "persona",
       description:
-        "Switch the system-prompt persona (`coding` / `chat` / `concise` / `general`), or show status",
+        "Switch the system-prompt persona (`coding` / `chat` / `concise` / `general` / `security`), or show status",
       takesArgs: true,
       run: async (args, ctx) => {
         const overrideNote = deps.systemPromptOverridden

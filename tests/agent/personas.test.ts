@@ -12,8 +12,8 @@ import {
 import { estimateTokens } from "../../src/repomap/render";
 
 describe("PERSONAS", () => {
-  it("ships coding, chat, concise, general in order, each with non-empty prompt + description", () => {
-    expect(PERSONAS.map((p) => p.id)).toEqual(["coding", "chat", "concise", "general"]);
+  it("ships coding, chat, concise, general, security in order, each with non-empty prompt + description", () => {
+    expect(PERSONAS.map((p) => p.id)).toEqual(["coding", "chat", "concise", "general", "security"]);
     for (const p of PERSONAS) {
       expect(p.prompt.trim().length).toBeGreaterThan(0);
       expect(p.description.trim().length).toBeGreaterThan(0);
@@ -166,6 +166,24 @@ describe("general persona", () => {
   it("keeps verify-before-claiming discipline", () => {
     const g = PERSONAS.find((p) => p.id === "general")!;
     expect(g.prompt).toContain("actually ran the tool");
+  });
+});
+
+describe("security persona", () => {
+  it("is review-first, evidence-based, and does not claim to enforce policy", () => {
+    const security = personaInfo("security");
+    for (const prompt of [security.prompt, security.smallPrompt!]) {
+      expect(prompt).toContain("threat model");
+      expect(prompt).toContain("read-only investigation");
+      expect(prompt).toContain("severity");
+      expect(prompt).toContain("confidence");
+      expect(prompt).toContain("remediation");
+      expect(prompt).toContain("enforcement boundary");
+    }
+  });
+
+  it("resolves security by its unambiguous prefix", () => {
+    expect(resolvePersonaName("sec")).toBe("security");
   });
 });
 
