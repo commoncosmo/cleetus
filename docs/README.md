@@ -13,6 +13,8 @@ reference, and contributor documentation.
   `$VISUAL`, with compatibility profiles and a smoke harness.
 - [Inference providers](providers.md) — connect llama.cpp, LM Studio, or Ollama and understand
   provider-specific discovery, context, tool-template, and embedding behavior.
+- [Evidence and security capability roadmap](security-capabilities.md) — versioned evidence and
+  finding contracts, ACP evidence resources, client-managed jobs, and the staged runtime roadmap.
 - [Evaluation scenarios](../scenarios/README.md) — add repeatable fixtures and scoring rules for
   `cleetus eval` and `cleetus improve`.
 - [Main README](../README.md) — installation, configuration, commands, providers, sandboxing, and

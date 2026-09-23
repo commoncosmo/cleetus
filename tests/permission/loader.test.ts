@@ -37,4 +37,34 @@ describe("loadPermissions", () => {
     expect(rules.project).toEqual([]);
     expect(rules.global).toEqual([]);
   });
+
+  it("loads structured client-job constraints", async () => {
+    const global = join(dir, "global-job.yaml");
+    await writeFile(
+      global,
+      `rules:\n  - tool: job_start\n    job_kind: "sast.*"\n    job_effect: read\n    job_target_pattern: "repo:*"\n    max_timeout_ms: 120000\n    max_output_bytes: 20000\n    max_artifact_bytes: 40000\n    decision: allow\n`,
+    );
+    const rules = await loadPermissions({ globalPath: global, projectDir: dir });
+    expect(rules.global[0]).toMatchObject({
+      tool: "job_start",
+      jobKindPattern: "sast.*",
+      jobEffect: "read",
+      jobTargetPattern: "repo:*",
+      maxTimeoutMs: 120_000,
+      maxOutputBytes: 20_000,
+      maxArtifactBytes: 40_000,
+      decision: "allow",
+    });
+  });
+
+  it("rejects job constraints attached to another tool", async () => {
+    const global = join(dir, "bad-job.yaml");
+    await writeFile(
+      global,
+      "rules:\n  - tool: bash\n    job_effect: active_network\n    decision: deny\n",
+    );
+    await expect(loadPermissions({ globalPath: global, projectDir: dir })).rejects.toThrow(
+      "must be 'job_start'",
+    );
+  });
 });

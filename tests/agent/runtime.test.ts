@@ -32,7 +32,13 @@ import { SaveFetchedJsonTool } from "../../src/tools/save-fetched-json";
 import { TodoListWriteTool } from "../../src/tools/todo-list";
 import { TodoListStore } from "../../src/tools/todo-list-store";
 import { TodoWriteTool } from "../../src/tools/todo-write";
-import type { TodoItem, Tool, ToolContext, ToolResult } from "../../src/tools/types";
+import type {
+  TodoItem,
+  Tool,
+  ToolAuthorization,
+  ToolContext,
+  ToolResult,
+} from "../../src/tools/types";
 import { WriteFileTool } from "../../src/tools/write-file";
 import { trackerHeader, trackerTodosFrom } from "../../src/ui/tui/todo-meter";
 import { WebFetchCache } from "../../src/web/fetch-cache";
@@ -63,6 +69,32 @@ class FakeTool implements Tool {
   }
   async run(args: unknown, _ctx: ToolContext): Promise<ToolResult> {
     return { ok: true, output: `said:${(args as { text: string }).text}` };
+  }
+}
+
+class FakeAuthorizedTool implements Tool {
+  name = "job_start";
+  description = "starts a declared client job";
+  parameters = { type: "object", properties: {} };
+  readonly declaredAuthorization: ToolAuthorization = {
+    type: "client_job",
+    kind: "sast.semgrep",
+    effect: "read",
+    target: "repo:current",
+    limits: {
+      timeoutMs: 60_000,
+      maxOutputBytes: 1_048_576,
+      maxArtifactBytes: 10_485_760,
+    },
+  };
+  serialize() {
+    return "job_start sast.semgrep (read) target=repo:current";
+  }
+  authorization() {
+    return this.declaredAuthorization;
+  }
+  async run(): Promise<ToolResult> {
+    return { ok: true, output: "started" };
   }
 }
 
@@ -3532,6 +3564,60 @@ Run \`bun test\`, \`tsc --noEmit\`, and a smoke test.
     const toolEnd = events.find((e) => e.type === "tool_call_end");
     expect(toolEnd).toBeTruthy();
     expect((toolEnd?.payload as { ok: boolean }).ok).toBe(false);
+  });
+
+  it("passes declared tool authority through permission resolution and durable events", async () => {
+    const authorizedTool = new FakeAuthorizedTool();
+    tools.register(authorizedTool);
+    providers.register(
+      "lm",
+      new ScriptedProvider([
+        [
+          { type: "tool-call", call: { id: "job-1", name: "job_start", args: {} } },
+          { type: "finish", reason: "tool-calls" },
+        ],
+        [
+          { type: "text-delta", text: "Job started." },
+          { type: "finish", reason: "stop" },
+        ],
+      ]),
+    );
+    let requestedAuthorization: ToolAuthorization | undefined;
+    const runtime = new AgentRuntime({
+      providers,
+      tools,
+      dispatcher: new ToolDispatcher(tools),
+      log,
+      router: staticRouter({ provider: "lm", model: "m" }),
+      systemPrompt: () => "",
+      projectDir: dir,
+      resolvePermission: async ({ authorization }) => {
+        requestedAuthorization = authorization;
+        return "allow";
+      },
+      maxToolLoops: 10,
+    });
+    const session = sessions.create({ provider: "lm", model: "m" });
+
+    const result = await runtime.runTurn(session.id, "Run the scanner.");
+
+    expect(result.assistantText).toBe("Job started.");
+    expect(requestedAuthorization).toEqual(authorizedTool.declaredAuthorization);
+    const events = log.query(session.id);
+    expect(
+      (
+        events.find((event) => event.type === "permission_request")?.payload as {
+          authorization?: ToolAuthorization;
+        }
+      ).authorization,
+    ).toEqual(authorizedTool.declaredAuthorization);
+    expect(
+      (
+        events.find((event) => event.type === "permission_decision")?.payload as {
+          authorization?: ToolAuthorization;
+        }
+      ).authorization,
+    ).toEqual(authorizedTool.declaredAuthorization);
   });
 
   it("rejects an unknown tool name before prompting, listing available tools", async () => {

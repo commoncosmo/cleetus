@@ -19,6 +19,7 @@ export const SMALL_TOOL_ROSTER: ReadonlySet<string> = new Set([
   "grep",
   "glob",
   "todo_write",
+  "record_findings",
   "run_tests",
   "render_check",
   "smoke_run",
@@ -32,6 +33,16 @@ export const SMALL_RETRIEVAL_TOOL_ROSTER: ReadonlySet<string> = new Set([
   "web_search",
   "web_fetch",
   "save_fetched_json",
+]);
+
+/** Client-job tools exist only after an ACP client explicitly advertises the extension. Like MCP
+ *  tools, that negotiated external surface remains visible regardless of model capability. */
+export const CLIENT_JOB_TOOL_ROSTER: ReadonlySet<string> = new Set([
+  "job_start",
+  "job_status",
+  "job_cancel",
+  "job_artifact_read",
+  "job_artifact_normalize",
 ]);
 
 /** Exact retrieved artifacts have a purpose-built path. Keeping generic shell and file writers
@@ -59,6 +70,10 @@ function isMcpTool(name: string): boolean {
   return name.startsWith("mcp__");
 }
 
+function isNegotiatedExternalTool(name: string): boolean {
+  return isMcpTool(name) || CLIENT_JOB_TOOL_ROSTER.has(name);
+}
+
 /** The tools a model of `capability` may see. `standard` passes everything through. */
 export function filterToolsForCapability(
   tools: Tool[],
@@ -67,7 +82,8 @@ export function filterToolsForCapability(
 ): Tool[] {
   if (capability === "standard") return tools;
   return tools.filter(
-    (t) => SMALL_TOOL_ROSTER.has(t.name) || taskTools.has(t.name) || isMcpTool(t.name),
+    (t) =>
+      SMALL_TOOL_ROSTER.has(t.name) || taskTools.has(t.name) || isNegotiatedExternalTool(t.name),
   );
 }
 
@@ -81,7 +97,9 @@ export function hiddenToolRedirect(
   taskTools: ReadonlySet<string> = new Set(),
 ): string | null {
   if (capability === "standard") return null;
-  if (SMALL_TOOL_ROSTER.has(name) || taskTools.has(name) || isMcpTool(name)) return null;
+  if (SMALL_TOOL_ROSTER.has(name) || taskTools.has(name) || isNegotiatedExternalTool(name)) {
+    return null;
+  }
   const base = `${name} is not available in this session`;
   if (name === "multi_edit" || name === "apply_patch") return `${base}; use edit_file.`;
   if (name === "smoke_run") return `${base}; use bash.`;

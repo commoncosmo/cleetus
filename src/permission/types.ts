@@ -8,6 +8,13 @@ export interface PermissionRule {
   argsPattern?: string;
   /** Absolute directory; matches a path-writing tool whose resolved target path is under it. */
   pathPrefix?: string;
+  /** Client-job constraints. These fields match only `job_start` authorization metadata. */
+  jobKindPattern?: string;
+  jobEffect?: "read" | "passive_network" | "active_network" | "write";
+  jobTargetPattern?: string;
+  maxTimeoutMs?: number;
+  maxOutputBytes?: number;
+  maxArtifactBytes?: number;
   decision: Decision;
 }
 
@@ -21,6 +28,12 @@ export const BUILTIN_DEFAULTS: Record<string, Decision> = {
   glob: "allow",
   grep: "allow",
   code_search: "allow",
+  record_findings: "allow",
+  job_start: "ask",
+  job_status: "allow",
+  job_cancel: "allow",
+  job_artifact_read: "allow",
+  job_artifact_normalize: "allow",
   remember: "allow",
   todo_write: "allow",
   todo_list_show: "allow",

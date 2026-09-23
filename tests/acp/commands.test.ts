@@ -280,7 +280,19 @@ describe("ACP slash commands", () => {
         getInstructions: () => "Follow AGENTS.md.",
         memory: { global, project },
         getPermissions: async () => ({
-          project: [{ tool: "bash", argsPattern: "bun test*", decision: "allow" }],
+          project: [
+            { tool: "bash", argsPattern: "bun test*", decision: "allow" },
+            {
+              tool: "job_start",
+              decision: "allow",
+              jobKindPattern: "sast.*",
+              jobEffect: "read",
+              jobTargetPattern: "repo:*",
+              maxTimeoutMs: 60_000,
+              maxOutputBytes: 1_048_576,
+              maxArtifactBytes: 10_485_760,
+            },
+          ],
           global: [{ tool: "git_push", decision: "ask" }],
         }),
         getMcpStatus: () => [
@@ -331,7 +343,7 @@ describe("ACP slash commands", () => {
       });
       expect(await supported.execute("/permissions", { sessionId: "one" })).toEqual({
         kind: "text",
-        text: "project:\n  bash bun test* -> allow\nglobal:\n  git_push * -> ask",
+        text: "project:\n  bash bun test* -> allow\n  job_start * [kind=sast.*, effect=read, target=repo:*, timeout<=60000ms, output<=1048576B, artifacts<=10485760B] -> allow\nglobal:\n  git_push * -> ask",
       });
       expect(await supported.execute("/mcp", { sessionId: "one" })).toEqual({
         kind: "text",

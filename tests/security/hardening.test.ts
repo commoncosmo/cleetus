@@ -149,6 +149,7 @@ it("exact shell approvals reject compound commands, substitutions and changed cw
       prefixes: [],
       denials: [],
       bashCommands: [{ command: "printf ok", cwd: project }],
+      jobScopes: [],
     },
     project,
   );

@@ -14,7 +14,13 @@ export function addRule(
       r.decision === decision &&
       r.tool === partial.tool &&
       r.argsPattern === partial.argsPattern &&
-      r.pathPrefix === partial.pathPrefix,
+      r.pathPrefix === partial.pathPrefix &&
+      r.jobKindPattern === partial.jobKindPattern &&
+      r.jobEffect === partial.jobEffect &&
+      r.jobTargetPattern === partial.jobTargetPattern &&
+      r.maxTimeoutMs === partial.maxTimeoutMs &&
+      r.maxOutputBytes === partial.maxOutputBytes &&
+      r.maxArtifactBytes === partial.maxArtifactBytes,
   );
   if (exists) return;
   layer.push({ ...partial, decision });

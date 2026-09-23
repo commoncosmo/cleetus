@@ -1,3 +1,5 @@
+import type { FindingSet } from "../evidence/contracts";
+import type { JobArtifactChunk, JobEffect, JobStatus } from "../jobs/contracts";
 import type { CleetusErrorCode } from "../lib/errors";
 
 export type TodoStatus = "pending" | "in_progress" | "completed";
@@ -45,6 +47,20 @@ export interface ToolContext {
   homeDir?: string;
 }
 
+/** Security-relevant authority declared by an external operation before permission resolution.
+ *  The permission layer may narrow or reject this authority; it never infers missing fields. */
+export interface ToolAuthorization {
+  type: "client_job";
+  kind: string;
+  effect: JobEffect;
+  target?: string;
+  limits: {
+    timeoutMs: number;
+    maxOutputBytes: number;
+    maxArtifactBytes: number;
+  };
+}
+
 export interface ToolResult {
   verification?: {
     command: string;
@@ -74,6 +90,12 @@ export interface ToolResult {
    *  initial render. */
   verificationInteraction?: boolean;
   verificationControl?: string;
+  /** Validated structured output retained in the event log and bridged to ACP `rawOutput`.
+   *  Text in `output` remains the fallback for clients that only render tool prose. */
+  structuredContent?:
+    | { type: "finding_set"; value: FindingSet }
+    | { type: "job_status"; value: JobStatus }
+    | { type: "job_artifact_chunk"; value: JobArtifactChunk };
 }
 
 export interface Tool {
@@ -84,5 +106,7 @@ export interface Tool {
   mutates?: boolean;
   /** Human-readable single-line summary used in permission prompts and the UI. */
   serialize(args: unknown): string;
+  /** Structured external authority used by policy evaluation and permission prompts. */
+  authorization?(args: unknown): ToolAuthorization | undefined;
   run(args: unknown, ctx: ToolContext): Promise<ToolResult>;
 }

@@ -145,6 +145,70 @@ describe("session/clear", () => {
   });
 });
 
+describe("session/load client MCP acknowledgement", () => {
+  it("reports the tools connected for this load and exposes filtered-name collisions", async () => {
+    const out: Outbound[] = [];
+    const transport = new AcpTransport({ write: (line) => out.push(JSON.parse(line)) });
+    const tools = new ToolRegistry();
+    const registered = registerSessionMethods(transport, {
+      runtime: makeRuntime(new TextProvider([])),
+      log,
+      sessions: new AcpSessions(),
+      permissionRouter: { current: async () => "deny" as const },
+      tools,
+      configuredMcpServerNames: new Set(["reserved"]),
+    });
+    const send = (id: number, params: unknown) =>
+      transport.handleLine(JSON.stringify({ jsonrpc: "2.0", id, method: "session/load", params }));
+    try {
+      await send(1, {
+        sessionId: "sess-mcp",
+        cwd: dir,
+        mcpServers: [
+          {
+            name: "echo",
+            command: process.execPath,
+            args: [join(import.meta.dir, "..", "mcp", "fixtures", "echo-server.ts")],
+            env: [],
+          },
+        ],
+      });
+      const connected = out.find((message) => message.id === 1)?.result?._meta as {
+        "commoncosmo.com": {
+          cleetus: {
+            clientMcp: {
+              version: number;
+              servers: Array<{ name: string; state: string; toolNames: string[] }>;
+            };
+          };
+        };
+      };
+      expect(connected["commoncosmo.com"].cleetus.clientMcp).toMatchObject({
+        version: 1,
+        servers: [
+          {
+            name: "echo",
+            state: "connected",
+            toolNames: expect.arrayContaining(["mcp__echo__echo"]),
+          },
+        ],
+      });
+      expect(tools.get("mcp__echo__echo")).toBeDefined();
+
+      await send(2, {
+        sessionId: "sess-mcp",
+        cwd: dir,
+        mcpServers: [{ name: "reserved", command: "/ignored", args: [], env: [] }],
+      });
+      expect(out.find((message) => message.id === 2)?.result?._meta).toEqual({
+        "commoncosmo.com": { cleetus: { clientMcp: { version: 1, servers: [] } } },
+      });
+    } finally {
+      await registered.shutdownMcp();
+    }
+  });
+});
+
 describe("session/compact", () => {
   it("passes the instruction through, returns { ok: true, stats }, and snapshots after compacting", async () => {
     const runtime = makeRuntime(new TextProvider([]));

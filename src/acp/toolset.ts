@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { type CodeSearchBackend, CodeSearchTool } from "../codeindex/search-tool";
 import type { CleetusConfig } from "../config/types";
+import { EvidenceRegistry, RecordFindingsTool } from "../evidence";
 import { RememberTool } from "../memory/remember-tool";
 import type { MemoryStore } from "../memory/store";
 import type { MemoryScope } from "../memory/types";
@@ -40,6 +41,7 @@ import type { FileBridge } from "./file-bridge";
 
 export interface AcpToolset {
   warnings: string[];
+  evidenceRegistry: EvidenceRegistry;
   dispose(): void;
 }
 
@@ -68,6 +70,7 @@ export async function registerAcpTools(input: {
   const { tools, fileBridge, sandbox, config, projectDir, projectScopeDir, globalDir, providers } =
     input;
   const warnings: string[] = [];
+  const evidenceRegistry = new EvidenceRegistry();
   const todoStores = {
     global: new TodoListStore(join(globalDir, "todos")),
     project: new TodoListStore(join(projectScopeDir, ".cleetus", "todos")),
@@ -142,9 +145,11 @@ export async function registerAcpTools(input: {
   tools.register(new WebSearchTool(config.webTools));
   tools.register(new CodeSearchTool(input.codeSearchForProject ?? vectors!));
   tools.register(new RememberTool(input.memory, input.rememberDefaultScope));
+  tools.register(new RecordFindingsTool(evidenceRegistry));
 
   return {
     warnings,
+    evidenceRegistry,
     dispose: () => vectors?.close(),
   };
 }

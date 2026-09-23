@@ -1,4 +1,5 @@
 import { sep } from "node:path";
+import type { ToolAuthorization } from "../tools/types";
 import {
   BUILTIN_DEFAULTS,
   type Decision,
@@ -19,19 +20,69 @@ function argsMatches(rule: PermissionRule, args: string): boolean {
   return args === rule.argsPattern;
 }
 
+function valueMatches(pattern: string, value: string): boolean {
+  return pattern.endsWith("*") ? value.startsWith(pattern.slice(0, -1)) : value === pattern;
+}
+
+function hasJobConstraints(rule: PermissionRule): boolean {
+  return (
+    rule.jobKindPattern !== undefined ||
+    rule.jobEffect !== undefined ||
+    rule.jobTargetPattern !== undefined ||
+    rule.maxTimeoutMs !== undefined ||
+    rule.maxOutputBytes !== undefined ||
+    rule.maxArtifactBytes !== undefined
+  );
+}
+
+function jobAuthorizationMatches(
+  rule: PermissionRule,
+  tool: string,
+  authorization?: ToolAuthorization,
+): boolean {
+  if (!hasJobConstraints(rule)) return true;
+  if (tool !== "job_start" || authorization?.type !== "client_job") return false;
+  if (rule.jobKindPattern && !valueMatches(rule.jobKindPattern, authorization.kind)) return false;
+  if (rule.jobEffect && rule.jobEffect !== authorization.effect) return false;
+  if (
+    rule.jobTargetPattern &&
+    (authorization.target === undefined ||
+      !valueMatches(rule.jobTargetPattern, authorization.target))
+  ) {
+    return false;
+  }
+  if (rule.maxTimeoutMs !== undefined && authorization.limits.timeoutMs > rule.maxTimeoutMs) {
+    return false;
+  }
+  if (
+    rule.maxOutputBytes !== undefined &&
+    authorization.limits.maxOutputBytes > rule.maxOutputBytes
+  ) {
+    return false;
+  }
+  if (
+    rule.maxArtifactBytes !== undefined &&
+    authorization.limits.maxArtifactBytes > rule.maxArtifactBytes
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export function pathUnder(target: string, prefix: string): boolean {
   const p = prefix.endsWith(sep) ? prefix.slice(0, -1) : prefix;
   return target === p || target.startsWith(p + sep);
 }
 
-/** Scan the persisted/live rules only. Returns the first matching rule's decision, or null when
- *  NO rule matches — callers decide whether builtin defaults apply (out-of-project reads must
- *  not inherit read_file's default `allow`). */
+/** Scan the persisted/live rules only. In the first layer with any match, a deny wins; otherwise
+ *  the first match decides. Returns null when no rule matches, so callers can decide whether
+ *  builtin defaults apply (out-of-project reads must not inherit read_file's default `allow`). */
 export function evaluateRules(
   rules: PermissionRules,
   tool: string,
   args: string,
   targetPath?: string,
+  authorization?: ToolAuthorization,
 ): Decision | null {
   for (const layer of [rules.project, rules.global]) {
     // Within a layer: any matching deny wins over any other match ("never" must stick
@@ -50,6 +101,7 @@ export function evaluateRules(
         matches = argsMatches(rule, args);
       }
       if (!matches) continue;
+      if (!jobAuthorizationMatches(rule, tool, authorization)) continue;
       if (rule.decision === "deny") return "deny";
       if (first === null) first = rule.decision;
     }
@@ -63,6 +115,9 @@ export function evaluatePermission(
   tool: string,
   args: string,
   targetPath?: string,
+  authorization?: ToolAuthorization,
 ): Decision {
-  return evaluateRules(rules, tool, args, targetPath) ?? BUILTIN_DEFAULTS[tool] ?? "ask";
+  return (
+    evaluateRules(rules, tool, args, targetPath, authorization) ?? BUILTIN_DEFAULTS[tool] ?? "ask"
+  );
 }

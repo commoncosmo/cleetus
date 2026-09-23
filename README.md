@@ -302,6 +302,23 @@ the terminal application while routing supported file, terminal, permission, and
 through the client. Use `cleetus acp --help` for ACP-specific overrides. Multi-worker chat
 orchestration is currently available only through the terminal surface.
 
+ACP clients may supply a validated evidence manifest as an embedded text resource with media type
+`application/vnd.commoncosmo.cleetus-evidence-bundle+json`. Cleetus renders its bounded provenance
+metadata into citation handles such as `[evidence:access-log]`; it does not dereference the opaque
+artifact URIs or treat the manifest as instructions. In the security persona, requested structured
+findings are validated against that session's registered bundle and returned through the standard
+ACP tool `rawOutput` field, with a readable text fallback. Clients may also advertise a namespaced
+client-managed job capability; Cleetus then exposes permission-gated start plus session-owned
+status, cancellation, and bounded artifact-read tools while the client retains execution and
+storage. Owned SARIF 2.1.0, CycloneDX 1.4–1.7 JSON, native OSV-Scanner JSON, and passive OWASP ZAP
+JSON artifacts can be normalized into stable, evidence-citing scanner hypotheses without copying
+their raw bodies through model context; matching artifact/evidence SHA-256 values are required and
+verified. Passive ZAP normalization additionally requires the owning `dast.zap-passive` job to have
+been authorized with the `passive_network` effect. Job permissions can match declared kind, effect,
+target, and budget ceilings; active or write jobs always require a fresh ACP approval. See the
+[evidence and security capability roadmap](docs/security-capabilities.md) for the versioned format,
+extension methods, bounds, and current limitations.
+
 ## Configuration
 
 cleetus reads `~/.config/cleetus/config.yaml` (global) and `<project>/.cleetus/config.yaml`
@@ -728,7 +745,8 @@ recommendation and explicitly labels hybrid staging unavailable. You can still f
 ## Permissions
 
 Rules live in `<project>/.cleetus/permissions.yaml` (project) and `~/.config/cleetus/permissions.yaml` (global).
-Project rules beat global; within a layer, first match wins.
+The project layer takes precedence when it has a matching rule. Within a layer, any matching deny
+wins; otherwise the first matching rule applies.
 
 ```yaml
 rules:
@@ -738,6 +756,12 @@ rules:
 ```
 
 `args_pattern` uses prefix matching with `*` wildcards (`git status*` matches `git status -uno`).
+
+Rules for `job_start` can additionally constrain `job_kind`, `job_effect`, `job_target_pattern`,
+`max_timeout_ms`, `max_output_bytes`, and `max_artifact_bytes`. These constraints are matched
+against the job's validated declaration before the ACP client is asked to execute it. See the
+[security capability guide](docs/security-capabilities.md#job-authorization-policy) for an example
+and the client-consent rules.
 
 A broad `bash` allow removes ordinary per-command prompts, but it does **not** disable Cleetus's
 non-overridable destructive-operation gate. Bash cannot erase `.cleetus`, `.git`, the project root,

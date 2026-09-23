@@ -59,6 +59,7 @@ describe("registerAcpTools", () => {
           "grep",
           "multi_edit",
           "read_file",
+          "record_findings",
           "remember",
           "save_fetched_json",
           "scaffold",

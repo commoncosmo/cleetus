@@ -9,9 +9,10 @@ import {
   makeAcpResolvePermission,
 } from "../../src/acp/permission";
 import type { PermissionRules } from "../../src/permission/types";
+import type { ToolAuthorization } from "../../src/tools/types";
 
 function emptyGrants(): SessionGrants {
-  return { tools: new Set<string>(), prefixes: [], denials: [], bashCommands: [] };
+  return { tools: new Set<string>(), prefixes: [], denials: [], bashCommands: [], jobScopes: [] };
 }
 
 /** A client whose `requestPermission` throws if called — used to prove a call short-circuits
@@ -53,6 +54,14 @@ function clientPicking(optionId: string, outcome: "selected" | "cancelled" = "se
 }
 
 const PROJECT = realpathSync(mkdtempSync(join(tmpdir(), "acp-perm-")));
+
+const READ_JOB_AUTHORIZATION: ToolAuthorization = {
+  type: "client_job",
+  kind: "sast.semgrep",
+  effect: "read",
+  target: "repo:current",
+  limits: { timeoutMs: 60_000, maxOutputBytes: 10_000, maxArtifactBytes: 20_000 },
+};
 
 describe("makeAcpResolvePermission", () => {
   it("maps allow_once to allow without recording a grant", async () => {
@@ -185,6 +194,7 @@ describe("makeAcpResolvePermission", () => {
       prefixes: [join(PROJECT, "src")],
       denials: [],
       bashCommands: [],
+      jobScopes: [],
     };
     const resolve = makeAcpResolvePermission(client, "s1", grants, PROJECT);
     // under the granted prefix → allow without prompting
@@ -373,6 +383,142 @@ describe("makeAcpResolvePermission — directory-scoped options", () => {
     const resolve = makeAcpResolvePermission(client, "s1", emptyGrants(), PROJECT);
     await resolve({ tool: "bash", args: {}, argsSummary: "ls" });
     expect(calls[0]!.toolCall.locations).toBeUndefined();
+  });
+});
+
+describe("makeAcpResolvePermission — client-job authority", () => {
+  it("offers and reuses a scope only for the same low-effect job within approved budgets", async () => {
+    const { client, calls } = clientPicking("allow_job_scope");
+    const grants = emptyGrants();
+    const resolve = makeAcpResolvePermission(client, "s1", grants, PROJECT);
+    expect(
+      await resolve({
+        tool: "job_start",
+        args: {},
+        argsSummary: "job_start sast.semgrep",
+        authorization: READ_JOB_AUTHORIZATION,
+      }),
+    ).toBe("allow");
+    expect(calls[0]!.options.map((option) => option.optionId)).toEqual([
+      "allow_once",
+      "allow_job_scope",
+      "reject_once",
+      "reject_always",
+    ]);
+    expect(grants.jobScopes).toEqual([READ_JOB_AUTHORIZATION]);
+
+    expect(
+      await resolve({
+        tool: "job_start",
+        args: {},
+        argsSummary: "job_start sast.semgrep smaller",
+        authorization: {
+          ...READ_JOB_AUTHORIZATION,
+          limits: { ...READ_JOB_AUTHORIZATION.limits, timeoutMs: 30_000 },
+        },
+      }),
+    ).toBe("allow");
+    expect(calls).toHaveLength(1);
+
+    await resolve({
+      tool: "job_start",
+      args: {},
+      argsSummary: "job_start sast.semgrep larger",
+      authorization: {
+        ...READ_JOB_AUTHORIZATION,
+        limits: { ...READ_JOB_AUTHORIZATION.limits, timeoutMs: 90_000 },
+      },
+    });
+    expect(calls).toHaveLength(2);
+  });
+
+  it("requires fresh approval for active jobs and rejects a rogue scoped-grant response", async () => {
+    const active: ToolAuthorization = {
+      ...READ_JOB_AUTHORIZATION,
+      kind: "dast.zap",
+      effect: "active_network",
+      target: "https://staging.example.com",
+    };
+    const inspected = clientPicking("allow_once");
+    const resolve = makeAcpResolvePermission(inspected.client, "s1", emptyGrants(), PROJECT);
+    expect(
+      await resolve({
+        tool: "job_start",
+        args: {},
+        argsSummary: "active scan",
+        authorization: active,
+      }),
+    ).toBe("allow");
+    expect(inspected.calls[0]!.options.map((option) => option.optionId)).toEqual([
+      "allow_once",
+      "reject_once",
+      "reject_always",
+    ]);
+
+    const rogue: PermissionClient = {
+      async requestPermission() {
+        return { outcome: { outcome: "selected", optionId: "allow_job_scope" } };
+      },
+    };
+    expect(
+      await makeAcpResolvePermission(
+        rogue,
+        "s1",
+        emptyGrants(),
+        PROJECT,
+      )({
+        tool: "job_start",
+        args: {},
+        argsSummary: "active scan",
+        authorization: active,
+      }),
+    ).toBe("deny");
+  });
+
+  it("enforces structured persisted denies before asking the client", async () => {
+    const rules: PermissionRules = {
+      project: [
+        {
+          tool: "job_start",
+          jobEffect: "active_network",
+          jobTargetPattern: "https://prod.*",
+          decision: "deny",
+        },
+      ],
+      global: [],
+    };
+    const resolve = makeAcpResolvePermission(
+      clientThatThrowsIfAsked(),
+      "s1",
+      emptyGrants(),
+      PROJECT,
+      { rules },
+    );
+    expect(
+      await resolve({
+        tool: "job_start",
+        args: {},
+        argsSummary: "active production scan",
+        authorization: {
+          ...READ_JOB_AUTHORIZATION,
+          kind: "dast.zap",
+          effect: "active_network",
+          target: "https://prod.example.com",
+        },
+      }),
+    ).toBe("deny");
+  });
+
+  it("fails closed when job_start lacks structured authorization metadata", async () => {
+    const resolve = makeAcpResolvePermission(
+      clientThatThrowsIfAsked(),
+      "s1",
+      emptyGrants(),
+      PROJECT,
+    );
+    expect(await resolve({ tool: "job_start", args: {}, argsSummary: "malformed job" })).toBe(
+      "deny",
+    );
   });
 });
 

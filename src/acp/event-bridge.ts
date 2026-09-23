@@ -18,6 +18,12 @@ const TOOL_KIND: Record<string, string> = {
   smoke_run: "execute",
   web_fetch: "fetch",
   web_search: "fetch",
+  record_findings: "think",
+  job_start: "execute",
+  job_status: "read",
+  job_cancel: "execute",
+  job_artifact_read: "read",
+  job_artifact_normalize: "think",
 };
 
 export function toolKind(toolName: string): string {
@@ -60,6 +66,7 @@ export function eventToUpdate(event: BridgeEvent, verbose = false): object | nul
     case "tool_call_end": {
       const id = String(call.id ?? p.id ?? "");
       const failed = p.ok === false;
+      const rawOutput = structuredRawOutput(p.structuredContent);
       const text =
         p.output != null
           ? String(p.output)
@@ -71,6 +78,7 @@ export function eventToUpdate(event: BridgeEvent, verbose = false): object | nul
         toolCallId: id,
         status: failed ? "failed" : "completed",
         content: text != null ? [{ type: "content", content: { type: "text", text } }] : undefined,
+        ...(rawOutput !== undefined ? { rawOutput } : {}),
       };
     }
     case "notice":
@@ -94,6 +102,20 @@ export function eventToUpdate(event: BridgeEvent, verbose = false): object | nul
     default:
       return null;
   }
+}
+
+function structuredRawOutput(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const content = value as Record<string, unknown>;
+  if (
+    !["finding_set", "job_status", "job_artifact_chunk"].includes(String(content.type)) ||
+    !content.value ||
+    typeof content.value !== "object" ||
+    Array.isArray(content.value)
+  ) {
+    return undefined;
+  }
+  return content.value as Record<string, unknown>;
 }
 
 /** Return true when `event` is a structured runtime stop caused by the loop-limit or the stream

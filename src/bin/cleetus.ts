@@ -796,12 +796,18 @@ async function main(argv: string[]): Promise<number> {
       }),
       systemPrompt,
       projectDir,
-      resolvePermission: async ({ tool, args, argsSummary }) => {
+      resolvePermission: async ({ tool, args, argsSummary, authorization }) => {
         // Both calls re-resolve the path; cheap here (realpath is OS-cached, once per tool
         // call) and non-write tools short-circuit before any I/O via rawToolPath.
         const escapes = await writeEscapesProject(tool, args, projectDir);
         const targetPath = await resolveToolTargetPath(tool, args, projectDir);
-        const baseline = evaluatePermission(rules, tool, argsSummary, targetPath ?? undefined);
+        const baseline = evaluatePermission(
+          rules,
+          tool,
+          argsSummary,
+          targetPath ?? undefined,
+          authorization,
+        );
         // Explicit deny always wins
         if (baseline === "deny") return "deny";
         // WorkflowService performs the consolidated exact-revision authority check.
@@ -1223,10 +1229,16 @@ async function main(argv: string[]): Promise<number> {
     }),
     systemPrompt,
     projectDir,
-    resolvePermission: async ({ tool, args, argsSummary }) => {
+    resolvePermission: async ({ tool, args, argsSummary, authorization }) => {
       const escapes = await writeEscapesProject(tool, args, projectDir);
       const targetPath = await resolveToolTargetPath(tool, args, projectDir);
-      const baseline = evaluatePermission(rules, tool, argsSummary, targetPath ?? undefined);
+      const baseline = evaluatePermission(
+        rules,
+        tool,
+        argsSummary,
+        targetPath ?? undefined,
+        authorization,
+      );
       // Explicit deny always wins
       if (baseline === "deny") return "deny";
       // WorkflowService performs the consolidated exact-revision authority check.

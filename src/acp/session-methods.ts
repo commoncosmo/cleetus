@@ -5,6 +5,8 @@ import type { SessionHistoryStore } from "../agent/session-history";
 import { DEFAULT_RESIZE, type ResizeConfig } from "../config/resize";
 import { DEFAULT_VISION, type VisionConfig } from "../config/vision";
 import type { EventLog } from "../events/log";
+import type { EvidenceRegistry } from "../evidence";
+import type { JobRegistry } from "../jobs";
 import { McpManager, createStdioConnection } from "../mcp";
 import type { McpServerStatus } from "../mcp/types";
 import type { PermissionRules } from "../permission/types";
@@ -14,6 +16,7 @@ import type { Sandbox } from "../sandbox/types";
 import type { ToolRegistry } from "../tools/registry";
 import {
   type ClientCapabilities,
+  clientJobCapabilities,
   clientSupportsFsRead,
   clientSupportsFsWrite,
   clientSupportsTerminal,
@@ -26,6 +29,7 @@ import { acpMcpServersToConfigs } from "./mcp-config";
 import { type PermissionClient, type SessionGrants, makeAcpResolvePermission } from "./permission";
 import { composeAcpPrompt } from "./prompt-content";
 import type { FileBridgeHolder, PermissionRouter, PlanModeHolder, SandboxHolder } from "./runtime";
+import { rehydrateSecuritySessionState, securityStateFromLoadParams } from "./security-state";
 import type { AcpSessions } from "./session";
 import type { AcpSessionConfigController, ActiveAcpSessionHolder } from "./session-config";
 import { AcpSandbox } from "./terminal-sandbox";
@@ -87,6 +91,10 @@ export interface SessionMethodDeps {
   historyStore?: SessionHistoryStore;
   /** Optional — shared tool registry that client MCP servers register their tools into. */
   tools?: ToolRegistry;
+  /** Connection-local evidence manifests used by the structured findings tool. */
+  evidenceRegistry?: EvidenceRegistry;
+  /** Mutable holder populated after initialize when the client opts into managed jobs. */
+  jobRegistryRef?: { current?: JobRegistry };
   /** Optional — mutable plan-mode flag flipped by `session/set_mode`. */
   planModeHolder?: PlanModeHolder;
   /** Optional — per-cwd persisted rules (project layer from the session's cwd, global shared);
@@ -142,6 +150,8 @@ export function registerSessionMethods(
     fallbackSandbox,
     historyStore,
     tools,
+    evidenceRegistry,
+    jobRegistryRef,
     planModeHolder,
     rulesForCwd,
     degradedConsent,
@@ -179,10 +189,13 @@ export function registerSessionMethods(
 
   /** Connect any client-provided MCP servers and register their tools into the shared registry.
    *  No-op when there's no registry, the input isn't a non-empty server array, or all malformed. */
-  async function connectClientMcp(sessionId: string, rawServers: unknown): Promise<void> {
-    if (!tools) return;
+  async function connectClientMcp(
+    sessionId: string,
+    rawServers: unknown,
+  ): Promise<McpServerStatus[]> {
+    if (!tools) return [];
     const servers = acpMcpServersToConfigs(rawServers, configuredMcpServerNames);
-    if (servers.length === 0) return;
+    if (servers.length === 0) return [];
     const mcp = new McpManager({ servers, factory: createStdioConnection, log, timeoutMs: 10_000 });
     await mcp.connectAll();
     mcp.registerInto(tools);
@@ -193,6 +206,7 @@ export function registerSessionMethods(
       sessionId,
       list.flatMap((manager) => manager.status()),
     );
+    return mcp.status();
   }
 
   // Persist session grants across turns of the same session. `allow_always` adds a whole-tool grant;
@@ -230,13 +244,34 @@ export function registerSessionMethods(
   // prompts/cancels resolve) and connects any client MCP servers. A missing snapshot is an empty
   // replay — still a valid load.
   transport.onRequest("session/load", async (params) => {
-    const p = params as { sessionId?: string; mcpServers?: unknown; cwd?: string } | null;
+    const p = params as {
+      sessionId?: string;
+      mcpServers?: unknown;
+      cwd?: string;
+      _meta?: unknown;
+    } | null;
     const sessionId = String(p?.sessionId ?? "");
+    const securityState = securityStateFromLoadParams(p);
+    const reattachment = securityState.present
+      ? rehydrateSecuritySessionState(sessionId, securityState.value, {
+          evidenceRegistry,
+          jobRegistry: jobRegistryRef?.current,
+          jobCapabilities: clientJobCapabilities(clientCapsRef.current),
+        })
+      : undefined;
+    if (reattachment && !reattachment.ok) {
+      const detail = reattachment.issues
+        .slice(0, 8)
+        .map((issue) => `${issue.path}: ${issue.message}`)
+        .join("; ");
+      throw new Error(`security session state rejected: ${detail}`);
+    }
     sessions.adopt(sessionId, pinnedOrParamCwd(pinnedCwd, p?.cwd, process.cwd()));
     const modeId = sessionModes.get(sessionId) ?? "default";
     sessionModes.set(sessionId, modeId);
     sessionConfig?.ensure(sessionId);
-    await connectClientMcp(sessionId, p?.mcpServers);
+    const clientMcpStatuses = await connectClientMcp(sessionId, p?.mcpServers);
+    const requestedClientMcp = Array.isArray(p?.mcpServers) && p.mcpServers.length > 0;
     const snap = historyStore?.load(sessionId);
     if (snap) {
       // Seed the runtime's in-memory history so a subsequent session/prompt continues
@@ -250,6 +285,20 @@ export function registerSessionMethods(
     return {
       modes: sessionModeState(modeId),
       ...(sessionConfig ? { configOptions: sessionConfig.options(sessionId) } : {}),
+      ...(reattachment?.ok || requestedClientMcp
+        ? {
+            _meta: {
+              "commoncosmo.com": {
+                cleetus: {
+                  ...(reattachment?.ok ? { securityState: reattachment.value } : {}),
+                  ...(requestedClientMcp
+                    ? { clientMcp: { version: 1, servers: clientMcpStatuses } }
+                    : {}),
+                },
+              },
+            },
+          }
+        : {}),
     };
   });
 
@@ -348,6 +397,18 @@ export function registerSessionMethods(
         });
         try {
           if (activeSessionHolder) activeSessionHolder.current = sessionId;
+          const evidenceIssues = evidenceRegistry?.registerBundles(
+            sessionId,
+            composedPrompt.evidenceBundles ?? [],
+          );
+          if (evidenceIssues && evidenceIssues.length > 0) {
+            throw new Error(
+              `evidence bundle registration failed: ${evidenceIssues
+                .slice(0, 5)
+                .map((issue) => `${issue.path}: ${issue.message}`)
+                .join("; ")}`,
+            );
+          }
           if (planModeHolder) planModeHolder.current = sessionModes.get(sessionId) === "plan";
           const sessionCwd = sessions.cwd(sessionId) ?? process.cwd();
           // Loaded once per cwd (cached) — a broken permissions.yaml fails this prompt loudly
@@ -361,6 +422,7 @@ export function registerSessionMethods(
               prefixes: [],
               denials: [],
               bashCommands: [],
+              jobScopes: [],
             });
           }
           const grants = grantsBySession.get(sessionId)!;
