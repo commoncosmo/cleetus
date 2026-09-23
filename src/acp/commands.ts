@@ -349,7 +349,17 @@ export function createAcpCommandHandler(
         const format = (label: string, entries: PermissionRules["project"]) => {
           if (entries.length === 0) return `${label}: (none)`;
           return `${label}:\n${entries
-            .map((rule) => `  ${rule.tool} ${rule.argsPattern ?? "*"} -> ${rule.decision}`)
+            .map((rule) => {
+              const constraints = [
+                rule.jobKindPattern ? `kind=${rule.jobKindPattern}` : null,
+                rule.jobEffect ? `effect=${rule.jobEffect}` : null,
+                rule.jobTargetPattern ? `target=${rule.jobTargetPattern}` : null,
+                rule.maxTimeoutMs !== undefined ? `timeout<=${rule.maxTimeoutMs}ms` : null,
+                rule.maxOutputBytes !== undefined ? `output<=${rule.maxOutputBytes}B` : null,
+                rule.maxArtifactBytes !== undefined ? `artifacts<=${rule.maxArtifactBytes}B` : null,
+              ].filter(Boolean);
+              return `  ${rule.tool} ${rule.argsPattern ?? "*"}${constraints.length ? ` [${constraints.join(", ")}]` : ""} -> ${rule.decision}`;
+            })
             .join("\n")}`;
         };
         return {

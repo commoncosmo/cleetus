@@ -11,6 +11,7 @@ import {
 } from "../permission/path-guard";
 import { persistRule } from "../permission/persist";
 import { PATH_WRITING_TOOLS, type PermissionRules } from "../permission/types";
+import type { ToolAuthorization } from "../tools/types";
 import { toolKind } from "./event-bridge";
 
 export interface PermissionClient {
@@ -31,12 +32,34 @@ export interface SessionGrants {
   denials: { tool: string; argsPattern: string }[];
   /** Exact command + resolved cwd grants; never shell-prefix matches. */
   bashCommands: { command: string; cwd: string }[];
+  /** Scoped low-effect client jobs approved by the ACP client for this session. */
+  jobScopes: ToolAuthorization[];
 }
 
 const ALLOW_ONCE = { optionId: "allow_once", name: "Allow once", kind: "allow_once" };
 const ALLOW_ALWAYS = { optionId: "allow_always", name: "Always allow", kind: "allow_always" };
 const REJECT_ONCE = { optionId: "reject_once", name: "Reject", kind: "reject_once" };
 const REJECT_ALWAYS = { optionId: "reject_always", name: "Always reject", kind: "reject_always" };
+
+function jobScopeMatches(grant: ToolAuthorization, request: ToolAuthorization): boolean {
+  return (
+    grant.type === "client_job" &&
+    request.type === "client_job" &&
+    grant.kind === request.kind &&
+    grant.effect === request.effect &&
+    grant.target === request.target &&
+    request.limits.timeoutMs <= grant.limits.timeoutMs &&
+    request.limits.maxOutputBytes <= grant.limits.maxOutputBytes &&
+    request.limits.maxArtifactBytes <= grant.limits.maxArtifactBytes
+  );
+}
+
+function jobScopeOptionName(authorization: ToolAuthorization): string {
+  const target = authorization.target
+    ? ` for ${authorization.target.replace(/\s+/g, " ").slice(0, 80)}`
+    : "";
+  return `Always allow ${authorization.kind} ${authorization.effect}${target} within these budgets this session`;
+}
 
 /** Project-relative display for the grant button (e.g. "src/"). Falls back to the absolute dir
  *  if it somehow lands outside the project (symlink edge); always ends with a separator. */
@@ -70,7 +93,7 @@ export function makeAcpResolvePermission(
   projectDir: string,
   opts: AcpPermissionOpts = {},
 ): ResolvePermission {
-  return async ({ toolCallId, tool, args, argsSummary }) => {
+  return async ({ toolCallId, tool, args, argsSummary, authorization }) => {
     // 1. Session denial (exact tool + args match recorded by an earlier "Always reject") wins
     //    outright — no rule lookup, no prompt.
     if (grants.denials.some((d) => d.tool === tool && d.argsPattern === argsSummary)) {
@@ -89,12 +112,22 @@ export function makeAcpResolvePermission(
     // 3. A persisted DENY rule wins over any session grant — deny must always beat allow.
     //    Allow outcomes from rules are deliberately NOT auto-honored here; the ACP client stays
     //    the allow surface.
-    if (opts.rules && evaluateRules(opts.rules, tool, argsSummary, ruleTarget) === "deny") {
+    if (
+      opts.rules &&
+      evaluateRules(opts.rules, tool, argsSummary, ruleTarget, authorization) === "deny"
+    ) {
       return "deny";
     }
 
+    // Client jobs must carry validated structured authority. A scoped grant covers only the same
+    // kind/effect/target and budgets no larger than those the client already approved.
+    if (tool === "job_start") {
+      if (authorization?.type !== "client_job") return "deny";
+      if (grants.jobScopes.some((grant) => jobScopeMatches(grant, authorization))) return "allow";
+    }
+
     // 4. Whole-tool session grant ("Always allow" on a non-writer).
-    if (grants.tools.has(tool)) return "allow";
+    if (tool !== "job_start" && grants.tools.has(tool)) return "allow";
 
     const shellArgs = args as { command?: unknown; cwd?: unknown } | null;
     const command = typeof shellArgs?.command === "string" ? shellArgs.command : null;
@@ -141,6 +174,20 @@ export function makeAcpResolvePermission(
         REJECT_ONCE,
         REJECT_ALWAYS,
       ];
+    } else if (tool === "job_start" && authorization?.type === "client_job") {
+      options =
+        authorization.effect === "read" || authorization.effect === "passive_network"
+          ? [
+              ALLOW_ONCE,
+              {
+                optionId: "allow_job_scope",
+                name: jobScopeOptionName(authorization),
+                kind: "allow_always",
+              },
+              REJECT_ONCE,
+              REJECT_ALWAYS,
+            ]
+          : [ALLOW_ONCE, REJECT_ONCE, REJECT_ALWAYS];
     } else {
       options = [ALLOW_ONCE, ALLOW_ALWAYS, REJECT_ONCE, REJECT_ALWAYS];
     }
@@ -194,9 +241,20 @@ export function makeAcpResolvePermission(
         if (command?.trim()) grants.bashCommands.push({ command, cwd });
         return "allow";
       }
+      case "allow_job_scope": {
+        if (
+          tool !== "job_start" ||
+          authorization?.type !== "client_job" ||
+          (authorization.effect !== "read" && authorization.effect !== "passive_network")
+        ) {
+          return "deny";
+        }
+        grants.jobScopes.push(authorization);
+        return "allow";
+      }
       case "allow_always":
         // Never offered to writers or bash; a rogue client echo must not blanket-grant.
-        if (isWriter || tool === "bash") return "deny";
+        if (isWriter || tool === "bash" || tool === "job_start") return "deny";
         grants.tools.add(tool);
         return "allow";
       case "allow_once":

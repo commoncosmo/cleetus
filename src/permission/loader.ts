@@ -6,12 +6,42 @@ import { CleetusError } from "../lib/errors";
 import { readTrustedProjectFile } from "../security/project-trust";
 import type { PermissionRule, PermissionRules } from "./types";
 
-const RuleSchema = z.object({
-  tool: z.string().optional(),
-  args_pattern: z.string().optional(),
-  path_prefix: z.string().optional(),
-  decision: z.enum(["allow", "deny", "ask"]),
-});
+const RuleSchema = z
+  .object({
+    tool: z.string().optional(),
+    args_pattern: z.string().optional(),
+    path_prefix: z.string().optional(),
+    job_kind: z.string().min(1).optional(),
+    job_effect: z.enum(["read", "passive_network", "active_network", "write"]).optional(),
+    job_target_pattern: z.string().min(1).optional(),
+    max_timeout_ms: z.number().int().nonnegative().optional(),
+    max_output_bytes: z.number().int().nonnegative().optional(),
+    max_artifact_bytes: z.number().int().nonnegative().optional(),
+    decision: z.enum(["allow", "deny", "ask"]),
+  })
+  .superRefine((rule, ctx) => {
+    const hasJobConstraint =
+      rule.job_kind !== undefined ||
+      rule.job_effect !== undefined ||
+      rule.job_target_pattern !== undefined ||
+      rule.max_timeout_ms !== undefined ||
+      rule.max_output_bytes !== undefined ||
+      rule.max_artifact_bytes !== undefined;
+    if (hasJobConstraint && rule.tool !== "job_start") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["tool"],
+        message: "must be 'job_start' when job authorization constraints are present",
+      });
+    }
+    if (hasJobConstraint && rule.path_prefix !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["path_prefix"],
+        message: "cannot be combined with job authorization constraints",
+      });
+    }
+  });
 
 const FileSchema = z.object({
   rules: z.array(RuleSchema).default([]),
@@ -46,6 +76,12 @@ async function readRules(path: string, approvedText?: string | null): Promise<Pe
     tool: r.tool,
     argsPattern: r.args_pattern,
     pathPrefix: r.path_prefix,
+    ...(r.job_kind !== undefined ? { jobKindPattern: r.job_kind } : {}),
+    ...(r.job_effect !== undefined ? { jobEffect: r.job_effect } : {}),
+    ...(r.job_target_pattern !== undefined ? { jobTargetPattern: r.job_target_pattern } : {}),
+    ...(r.max_timeout_ms !== undefined ? { maxTimeoutMs: r.max_timeout_ms } : {}),
+    ...(r.max_output_bytes !== undefined ? { maxOutputBytes: r.max_output_bytes } : {}),
+    ...(r.max_artifact_bytes !== undefined ? { maxArtifactBytes: r.max_artifact_bytes } : {}),
     decision: r.decision,
   }));
 }

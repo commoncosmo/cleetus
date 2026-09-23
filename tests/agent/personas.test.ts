@@ -179,6 +179,12 @@ describe("security persona", () => {
       expect(prompt).toContain("confidence");
       expect(prompt).toContain("remediation");
       expect(prompt).toContain("enforcement boundary");
+      expect(prompt).toContain("record_findings");
+      expect(prompt).toContain("job_artifact_normalize");
+      expect(prompt).toContain("CycloneDX");
+      expect(prompt).toContain("OSV-Scanner");
+      expect(prompt).toContain("passive ZAP");
+      expect(prompt).toContain("availability, not authorization");
     }
   });
 

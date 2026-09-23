@@ -4103,6 +4103,7 @@ export class AgentRuntime {
             continue;
           }
           const summary = tool.serialize(call.args);
+          const authorization = tool.authorization?.(call.args);
           const inspectionPath = completionAuditInspectionPath(call.name, call.args, projectDir);
           const hasPassingCurrentVerification = [...verificationResults.values()].some(
             (result) => result.ok && !result.baseline,
@@ -4144,7 +4145,7 @@ export class AgentRuntime {
           log.append({
             sessionId,
             type: "permission_request",
-            payload: { toolCallId: call.id, tool: call.name, summary },
+            payload: { toolCallId: call.id, tool: call.name, summary, authorization },
           });
 
           let decision: Decision;
@@ -4155,6 +4156,7 @@ export class AgentRuntime {
               tool: call.name,
               args: call.args,
               argsSummary: summary,
+              authorization,
             });
           } catch (e) {
             // Fix D: resolvePermission threw — log the error, push an error tool result so
@@ -4185,7 +4187,7 @@ export class AgentRuntime {
           log.append({
             sessionId,
             type: "permission_decision",
-            payload: { tool: call.name, decision },
+            payload: { tool: call.name, decision, authorization },
           });
           // PreToolUse hooks gate an already-allowed tool (they tighten, never loosen). A hook
           // error/timeout fails closed (block). Note: a Ctrl-C mid-hook surfaces as a non-zero exit

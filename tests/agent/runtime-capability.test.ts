@@ -211,7 +211,7 @@ describe("capability surface (runtime)", () => {
       .map((e) => (e.payload as { text: string }).text)
       .filter((t) => t.startsWith("capability:"));
     expect(notices).toEqual([
-      "capability: small surface for small-m (11 tools, distilled prompt) — set capability: standard to override",
+      "capability: small surface for small-m (12 tools, distilled prompt) — set capability: standard to override",
     ]);
   });
 
@@ -321,7 +321,7 @@ describe("capability surface (runtime)", () => {
       .map((e) => (e.payload as { text: string }).text)
       .filter((t) => t.startsWith("capability:"));
     expect(notices).toEqual([
-      "capability: small surface for small-m (11 tools, distilled prompt) — set capability: standard to override",
+      "capability: small surface for small-m (12 tools, distilled prompt) — set capability: standard to override",
     ]);
   });
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+  CLIENT_JOB_TOOL_ROSTER,
   EXACT_ARTIFACT_TOOL_ROSTER,
   SMALL_RETRIEVAL_TOOL_ROSTER,
   SMALL_TOOL_ROSTER,
@@ -43,6 +44,7 @@ describe("filterToolsForCapability", () => {
     "grep",
     "glob",
     "todo_write",
+    "record_findings",
     "run_tests",
     "scaffold",
     "multi_edit",
@@ -57,15 +59,22 @@ describe("filterToolsForCapability", () => {
     "web_fetch",
     "code_search",
     "mcp__jira__create_issue",
+    "job_start",
+    "job_status",
+    "job_cancel",
+    "job_artifact_read",
+    "job_artifact_normalize",
   ];
   const tools = names.map(fakeTool);
 
   it("standard passes every tool through unchanged", () => {
     expect(filterToolsForCapability(tools, "standard")).toEqual(tools);
   });
-  it("small keeps exactly the roster plus MCP tools", () => {
+  it("small keeps exactly the roster plus negotiated external tools", () => {
     const kept = filterToolsForCapability(tools, "small").map((t) => t.name);
-    expect(kept.sort()).toEqual([...SMALL_TOOL_ROSTER, "mcp__jira__create_issue"].sort());
+    expect(kept.sort()).toEqual(
+      [...SMALL_TOOL_ROSTER, ...CLIENT_JOB_TOOL_ROSTER, "mcp__jira__create_issue"].sort(),
+    );
   });
   it("small admits only the task-scoped retrieval additions when requested", () => {
     const kept = filterToolsForCapability(tools, "small", SMALL_RETRIEVAL_TOOL_ROSTER).map(
@@ -81,6 +90,7 @@ describe("filterToolsForCapability", () => {
       "glob",
       "grep",
       "read_file",
+      "record_findings",
       "render_check",
       "run_tests",
       "scaffold",
@@ -103,10 +113,11 @@ describe("filterToolsForCapability", () => {
 });
 
 describe("hiddenToolRedirect", () => {
-  it("null for standard capability, roster tools, and MCP tools", () => {
+  it("null for standard capability, roster tools, and negotiated external tools", () => {
     expect(hiddenToolRedirect("apply_patch", "standard")).toBeNull();
     expect(hiddenToolRedirect("edit_file", "small")).toBeNull();
     expect(hiddenToolRedirect("mcp__jira__create_issue", "small")).toBeNull();
+    expect(hiddenToolRedirect("job_start", "small")).toBeNull();
   });
   it("null for a task-scoped small-surface tool", () => {
     expect(hiddenToolRedirect("web_fetch", "small", SMALL_RETRIEVAL_TOOL_ROSTER)).toBeNull();

@@ -1,3 +1,10 @@
+import {
+  EVIDENCE_BUNDLE_MIME_TYPE,
+  type EvidenceBundle,
+  parseEvidenceBundleJson,
+  renderEvidenceBundleForPrompt,
+} from "../evidence";
+
 export interface AcpImageCandidate {
   mime: string;
   base64?: string;
@@ -56,10 +63,12 @@ export function composeAcpPrompt(blocks: unknown): {
   text: string;
   textOnly: boolean;
   images: AcpImageCandidate[];
+  evidenceBundles?: EvidenceBundle[];
 } {
   if (!Array.isArray(blocks)) return { text: "", textOnly: true, images: [] };
   const parts: string[] = [];
   const images: AcpImageCandidate[] = [];
+  const evidenceBundles: EvidenceBundle[] = [];
   let textOnly = true;
 
   for (const raw of blocks) {
@@ -77,6 +86,24 @@ export function composeAcpPrompt(blocks: unknown): {
       const uri = stringField(resource.uri);
       const mimeType = stringField(resource.mimeType);
       const heading = resourceHeading({ kind: "Embedded resource", uri, mimeType });
+      if (mimeType?.toLowerCase() === EVIDENCE_BUNDLE_MIME_TYPE) {
+        if (typeof resource.text !== "string") {
+          parts.push(`${heading}\n[Rejected evidence bundle: expected textual JSON.]`);
+          continue;
+        }
+        const parsed = parseEvidenceBundleJson(resource.text);
+        if (parsed.ok) {
+          evidenceBundles.push(parsed.value);
+          parts.push(renderEvidenceBundleForPrompt(parsed.value));
+        } else {
+          const summary = parsed.issues
+            .slice(0, 3)
+            .map((issue) => `${issue.path}: ${issue.message}`)
+            .join("; ");
+          parts.push(`${heading}\n[Rejected evidence bundle: ${summary}]`);
+        }
+        continue;
+      }
       if (mimeType && IMAGE_MIME_RE.test(mimeType) && typeof resource.blob === "string") {
         images.push({ mime: mimeType.toLowerCase(), base64: resource.blob });
         continue;
@@ -113,5 +140,10 @@ export function composeAcpPrompt(blocks: unknown): {
     }
   }
 
-  return { text: parts.join("\n\n"), textOnly, images };
+  return {
+    text: parts.join("\n\n"),
+    textOnly,
+    images,
+    ...(evidenceBundles.length > 0 ? { evidenceBundles } : {}),
+  };
 }

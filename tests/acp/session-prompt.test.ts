@@ -15,6 +15,8 @@ import { staticRouter } from "../../src/agent/router";
 import { AgentRuntime } from "../../src/agent/runtime";
 import { SessionHistoryStore } from "../../src/agent/session-history";
 import { EventLog } from "../../src/events/log";
+import { EVIDENCE_BUNDLE_MIME_TYPE, EvidenceRegistry } from "../../src/evidence";
+import { JobRegistry } from "../../src/jobs";
 import { openDatabase } from "../../src/lib/db";
 import type { PermissionRules } from "../../src/permission/types";
 import { ProviderRegistry } from "../../src/providers/registry";
@@ -105,6 +107,18 @@ interface Outbound {
       availableModes: { id: string; name: string; description: string }[];
     };
     configOptions?: { id: string; currentValue: string }[];
+    _meta?: {
+      "commoncosmo.com"?: {
+        cleetus?: {
+          securityState?: {
+            schemaVersion: number;
+            evidenceBundles: number;
+            findingSets: number;
+            jobs: number;
+          };
+        };
+      };
+    };
   } | null;
 }
 
@@ -118,6 +132,11 @@ function wire(
   sessionConfig?: AcpSessionConfigController,
   activeSessionHolder?: ActiveAcpSessionHolder,
   projectContext?: { activate(cwd: string): Promise<void>; reset(): void },
+  evidenceRegistry?: EvidenceRegistry,
+  security?: {
+    jobRegistryRef: { current?: JobRegistry };
+    clientCapsRef: { current: { _meta?: Record<string, unknown> } };
+  },
 ) {
   const out: Outbound[] = [];
   const transport = new AcpTransport({
@@ -139,6 +158,9 @@ function wire(
     sessionConfig,
     activeSessionHolder,
     projectContext,
+    evidenceRegistry,
+    jobRegistryRef: security?.jobRegistryRef,
+    clientCapsRef: security?.clientCapsRef,
   });
   const send = (id: number, method: string, params: unknown) =>
     transport.handleLine(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
@@ -338,6 +360,50 @@ describe("ACP command advertisement and dispatch", () => {
 });
 
 describe("session/new + session/prompt end-to-end", () => {
+  it("registers validated evidence bundles in the active ACP session", async () => {
+    const evidenceRegistry = new EvidenceRegistry();
+    const provider = new TextProvider(["received"]);
+    const { out, send } = wire(
+      provider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      evidenceRegistry,
+    );
+    await send(1, "session/new", { cwd: dir });
+    const sessionId = out.find((message) => message.id === 1)?.result?.sessionId;
+    await send(2, "session/prompt", {
+      sessionId,
+      prompt: [
+        { type: "text", text: "Investigate this evidence" },
+        {
+          type: "resource",
+          resource: {
+            mimeType: EVIDENCE_BUNDLE_MIME_TYPE,
+            text: JSON.stringify({
+              schemaVersion: 1,
+              bundleId: "case-42",
+              items: [
+                {
+                  id: "access-log",
+                  kind: "web_server_log",
+                  uri: "ccsec://cases/42/access.jsonl",
+                  provenance: { source: "nginx export" },
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    expect(evidenceRegistry.bundle(sessionId!, "case-42")?.items[0]?.id).toBe("access-log");
+    expect(provider.requests[0]?.messages.at(-1)?.content).toContain("[evidence:access-log]");
+  });
+
   it("creates a session, streams agent_message_chunk updates, ends with end_turn", async () => {
     const { out, send } = wire(new TextProvider(["Hello ", "world"]));
 
@@ -525,6 +591,111 @@ describe("session/new + session/prompt end-to-end", () => {
 });
 
 describe("session/load + session/set_mode", () => {
+  it("reattaches validated security state and confirms restored ownership counts", async () => {
+    const evidenceRegistry = new EvidenceRegistry();
+    const jobRegistry = new JobRegistry();
+    const security = {
+      jobRegistryRef: { current: jobRegistry },
+      clientCapsRef: {
+        current: {
+          _meta: {
+            "commoncosmo.com": {
+              cleetus: {
+                jobs: {
+                  version: 1,
+                  kinds: ["dast.zap-passive"],
+                  maxArtifactReadBytes: 65_536,
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+    const { out, send } = wire(
+      new TextProvider([]),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      evidenceRegistry,
+      security,
+    );
+    const sha256 = "b".repeat(64);
+
+    await send(1, "session/load", {
+      sessionId: "sess-security",
+      cwd: dir,
+      _meta: {
+        "commoncosmo.com": {
+          cleetus: {
+            securityState: {
+              schemaVersion: 1,
+              evidenceBundles: [
+                {
+                  schemaVersion: 1,
+                  bundleId: "case-1",
+                  items: [
+                    {
+                      id: "zap-report",
+                      kind: "dast_report",
+                      uri: "ccsec://cases/1/zap.json",
+                      digest: { algorithm: "sha256", value: sha256 },
+                      redaction: "none",
+                      provenance: { source: "ccsec" },
+                    },
+                  ],
+                },
+              ],
+              jobs: [
+                {
+                  spec: {
+                    schemaVersion: 1,
+                    kind: "dast.zap-passive",
+                    evidenceBundleId: "case-1",
+                    inputEvidenceIds: ["zap-report"],
+                    target: "https://staging.example.test",
+                    effect: "passive_network",
+                    parameters: {},
+                    limits: {
+                      timeoutMs: 60_000,
+                      maxOutputBytes: 4_096,
+                      maxArtifactBytes: 8_192,
+                    },
+                  },
+                  status: {
+                    schemaVersion: 1,
+                    jobId: "job-1",
+                    kind: "dast.zap-passive",
+                    status: "succeeded",
+                    artifacts: [
+                      {
+                        artifactId: "zap-json",
+                        name: "zap.json",
+                        mimeType: "application/json",
+                        sizeBytes: 42,
+                        sha256,
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+    });
+
+    expect(evidenceRegistry.bundle("sess-security", "case-1")).toBeDefined();
+    expect(jobRegistry.get("sess-security", "job-1")?.status.status).toBe("succeeded");
+    expect(
+      out.find((message) => message.id === 1)?.result?._meta?.["commoncosmo.com"]?.cleetus
+        ?.securityState,
+    ).toEqual({ schemaVersion: 1, evidenceBundles: 1, findingSets: 0, jobs: 1 });
+  });
+
   it("replays a snapshot's user/assistant prose and returns mode state", async () => {
     const store = new SessionHistoryStore(openDatabase(join(dir, "history.db")));
     store.save(

@@ -94,4 +94,35 @@ describe("persistRule + loadPermissions round-trip", () => {
       await rm(projDir, { recursive: true, force: true });
     }
   });
+
+  it("round-trips structured client-job constraints", async () => {
+    const globalFile = join(dir, "global-job.yaml");
+    const projDir = await mkdtemp(join(tmpdir(), "cleetus-rt-job-"));
+    await mkdir(join(projDir, ".cleetus"), { recursive: true });
+    try {
+      await persistRule(globalFile, {
+        tool: "job_start",
+        jobKindPattern: "dast.*",
+        jobEffect: "active_network",
+        jobTargetPattern: "https://staging.*",
+        maxTimeoutMs: 300_000,
+        maxOutputBytes: 50_000,
+        maxArtifactBytes: 100_000,
+        decision: "deny",
+      });
+      const rules = await loadPermissions({ globalPath: globalFile, projectDir: projDir });
+      expect(rules.global[0]).toMatchObject({
+        tool: "job_start",
+        jobKindPattern: "dast.*",
+        jobEffect: "active_network",
+        jobTargetPattern: "https://staging.*",
+        maxTimeoutMs: 300_000,
+        maxOutputBytes: 50_000,
+        maxArtifactBytes: 100_000,
+        decision: "deny",
+      });
+    } finally {
+      await rm(projDir, { recursive: true, force: true });
+    }
+  });
 });

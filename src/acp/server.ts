@@ -1,7 +1,9 @@
+import { type JobRegistry, registerClientJobTools } from "../jobs";
 import type { McpServerStatus } from "../mcp/types";
 import {
   type ClientCapabilities,
   buildInitializeResult,
+  clientJobCapabilities,
   negotiateProtocolVersion,
   parseClientCapabilities,
 } from "./capabilities";
@@ -77,13 +79,26 @@ export async function runAcp(opts: AcpRuntimeOptions): Promise<void> {
     write: (line) => process.stdout.write(line),
   });
 
+  const bundle = await buildAcpRuntime(opts);
+
   // Shared ref that registerInitialize writes once; session/prompt reads per-turn.
   const clientCapsRef: { current: ClientCapabilities } = { current: {} };
+  const jobRegistryRef: { current?: JobRegistry } = {};
+  let jobToolsRegistered = false;
   registerInitialize(transport, (caps) => {
     clientCapsRef.current = caps;
+    const jobCapabilities = clientJobCapabilities(caps);
+    if (jobCapabilities && !jobToolsRegistered) {
+      jobRegistryRef.current = registerClientJobTools({
+        tools: bundle.tools,
+        request: (method, params) => transport.request(method, params),
+        capabilities: jobCapabilities,
+        evidenceRegistry: bundle.evidenceRegistry,
+      });
+      jobToolsRegistered = true;
+    }
   });
 
-  const bundle = await buildAcpRuntime(opts);
   const sessions = new AcpSessions();
   const mcpStatuses = new Map<string, McpServerStatus[]>();
   const { shutdownMcp } = registerSessionMethods(transport, {
@@ -98,8 +113,10 @@ export async function runAcp(opts: AcpRuntimeOptions): Promise<void> {
     sandboxHolder: bundle.sandboxHolder,
     fallbackSandbox: bundle.realSandbox,
     clientCapsRef,
+    jobRegistryRef,
     historyStore: bundle.historyStore,
     tools: bundle.tools,
+    evidenceRegistry: bundle.evidenceRegistry,
     planModeHolder: bundle.planModeHolder,
     rulesForCwd: bundle.rulesForCwd,
     degradedConsent: bundle.degradedConsent,

@@ -1,6 +1,15 @@
 import { describe, expect, it } from "bun:test";
 import { evaluatePermission, evaluateRules } from "../../src/permission/evaluator";
 import type { PermissionRules } from "../../src/permission/types";
+import type { ToolAuthorization } from "../../src/tools/types";
+
+const JOB_AUTHORIZATION: ToolAuthorization = {
+  type: "client_job",
+  kind: "sast.semgrep",
+  effect: "read",
+  target: "repo:current",
+  limits: { timeoutMs: 60_000, maxOutputBytes: 10_000, maxArtifactBytes: 20_000 },
+};
 
 describe("evaluatePermission", () => {
   const rules: PermissionRules = {
@@ -155,6 +164,61 @@ describe("evaluatePermission pathPrefix", () => {
     expect(evaluatePermission(rules, "edit_file", "edit_file /proj/a.ts", "/proj/a.ts")).toBe(
       "deny",
     );
+  });
+});
+
+describe("evaluatePermission client-job authorization", () => {
+  const rules: PermissionRules = {
+    project: [
+      {
+        tool: "job_start",
+        jobKindPattern: "sast.*",
+        jobEffect: "read",
+        jobTargetPattern: "repo:*",
+        maxTimeoutMs: 120_000,
+        maxOutputBytes: 20_000,
+        maxArtifactBytes: 40_000,
+        decision: "allow",
+      },
+      {
+        tool: "job_start",
+        jobEffect: "active_network",
+        jobTargetPattern: "https://prod.*",
+        decision: "deny",
+      },
+    ],
+    global: [],
+  };
+
+  it("matches kind, effect, target, and requests within every budget", () => {
+    expect(evaluatePermission(rules, "job_start", "summary", undefined, JOB_AUTHORIZATION)).toBe(
+      "allow",
+    );
+  });
+
+  it("does not match when any requested budget exceeds the rule ceiling", () => {
+    expect(
+      evaluatePermission(rules, "job_start", "summary", undefined, {
+        ...JOB_AUTHORIZATION,
+        limits: { ...JOB_AUTHORIZATION.limits, timeoutMs: 120_001 },
+      }),
+    ).toBe("ask");
+  });
+
+  it("applies a constrained deny to an active production target", () => {
+    expect(
+      evaluatePermission(rules, "job_start", "summary", undefined, {
+        ...JOB_AUTHORIZATION,
+        kind: "dast.zap",
+        effect: "active_network",
+        target: "https://prod.example.com",
+      }),
+    ).toBe("deny");
+  });
+
+  it("never matches constrained rules without structured authorization metadata", () => {
+    expect(evaluatePermission(rules, "job_start", "summary")).toBe("ask");
+    expect(evaluatePermission(rules, "bash", "summary", undefined, JOB_AUTHORIZATION)).toBe("ask");
   });
 });
 

@@ -99,6 +99,55 @@ describe("eventToUpdate", () => {
     expect(bad.status).toBe("failed");
   });
 
+  it("bridges validated findings through standard ACP tool rawOutput", () => {
+    const findingSet = {
+      schemaVersion: 1,
+      findingSetId: "findings-42",
+      evidenceBundleId: "case-42",
+      findings: [],
+    };
+    expect(
+      eventToUpdate(
+        ev("tool_call_end", {
+          call: { id: "c1", name: "record_findings" },
+          ok: true,
+          output: "Recorded 0 structured findings.",
+          structuredContent: { type: "finding_set", value: findingSet },
+        }),
+      ),
+    ).toEqual({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "c1",
+      status: "completed",
+      content: [
+        {
+          type: "content",
+          content: { type: "text", text: "Recorded 0 structured findings." },
+        },
+      ],
+      rawOutput: findingSet,
+    });
+  });
+
+  it("bridges validated client job status through standard ACP tool rawOutput", () => {
+    const status = {
+      schemaVersion: 1,
+      jobId: "job-1",
+      kind: "sast.semgrep",
+      status: "running",
+      progress: 0.5,
+      artifacts: [],
+    };
+    const update = eventToUpdate(
+      ev("tool_call_end", {
+        call: { id: "c2", name: "job_status" },
+        ok: true,
+        structuredContent: { type: "job_status", value: status },
+      }),
+    ) as { rawOutput?: unknown };
+    expect(update.rawOutput).toEqual(status);
+  });
+
   it("does not emit a proprietary session update for model_call_start", () => {
     expect(
       eventToUpdate(
@@ -134,6 +183,10 @@ describe("toolKind", () => {
     expect(toolKind("bash")).toBe("execute");
     expect(toolKind("web_fetch")).toBe("fetch");
     expect(toolKind("glob")).toBe("search");
+    expect(toolKind("record_findings")).toBe("think");
+    expect(toolKind("job_start")).toBe("execute");
+    expect(toolKind("job_artifact_read")).toBe("read");
+    expect(toolKind("job_artifact_normalize")).toBe("think");
   });
 });
 

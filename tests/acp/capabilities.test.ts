@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   ACP_PROTOCOL_VERSION,
   buildInitializeResult,
+  clientJobCapabilities,
   clientSupportsFsRead,
   clientSupportsFsWrite,
   clientSupportsTerminal,
@@ -22,6 +23,50 @@ describe("ACP capabilities", () => {
       ).promptCapabilities,
     ).toEqual({ image: true, audio: false, embeddedContext: true });
     expect(r.authMethods).toEqual([]);
+    expect(
+      (
+        r.agentCapabilities as {
+          _meta?: { "commoncosmo.com"?: { cleetus?: { clientJobs?: number } } };
+        }
+      )._meta?.["commoncosmo.com"]?.cleetus?.clientJobs,
+    ).toBe(1);
+    expect(
+      (
+        r.agentCapabilities as {
+          _meta?: {
+            "commoncosmo.com"?: { cleetus?: { securityStateReattachment?: number } };
+          };
+        }
+      )._meta?.["commoncosmo.com"]?.cleetus?.securityStateReattachment,
+    ).toBe(1);
+    expect(
+      (
+        r.agentCapabilities as {
+          _meta?: { "commoncosmo.com"?: { cleetus?: { sarifNormalization?: number } } };
+        }
+      )._meta?.["commoncosmo.com"]?.cleetus?.sarifNormalization,
+    ).toBe(1);
+    expect(
+      (
+        r.agentCapabilities as {
+          _meta?: { "commoncosmo.com"?: { cleetus?: { cycloneDxNormalization?: number } } };
+        }
+      )._meta?.["commoncosmo.com"]?.cleetus?.cycloneDxNormalization,
+    ).toBe(1);
+    expect(
+      (
+        r.agentCapabilities as {
+          _meta?: { "commoncosmo.com"?: { cleetus?: { osvNormalization?: number } } };
+        }
+      )._meta?.["commoncosmo.com"]?.cleetus?.osvNormalization,
+    ).toBe(1);
+    expect(
+      (
+        r.agentCapabilities as {
+          _meta?: { "commoncosmo.com"?: { cleetus?: { zapPassiveNormalization?: number } } };
+        }
+      )._meta?.["commoncosmo.com"]?.cleetus?.zapPassiveNormalization,
+    ).toBe(1);
   });
 
   it("negotiates to the lower shared version and falls back when client value is bad", () => {
@@ -55,5 +100,43 @@ describe("ACP capabilities", () => {
       clientCapabilities: { fs: { readTextFile: true } },
     });
     expect(clientSupportsFsWrite(withoutWrite)).toBe(false);
+  });
+
+  it("parses a bounded, namespaced client job capability", () => {
+    const capabilities = clientJobCapabilities({
+      _meta: {
+        "commoncosmo.com": {
+          cleetus: {
+            jobs: {
+              version: 1,
+              kinds: ["sast.semgrep", "dast.zap"],
+              maxArtifactReadBytes: 100_000,
+            },
+          },
+        },
+      },
+    });
+    expect(capabilities).toEqual({
+      version: 1,
+      kinds: ["sast.semgrep", "dast.zap"],
+      maxArtifactReadBytes: 65_536,
+    });
+  });
+
+  it("rejects malformed or duplicate client job kinds", () => {
+    expect(
+      clientJobCapabilities({
+        _meta: {
+          "commoncosmo.com": { cleetus: { jobs: { version: 1, kinds: ["sast", "sast"] } } },
+        },
+      }),
+    ).toBeNull();
+    expect(
+      clientJobCapabilities({
+        _meta: {
+          "commoncosmo.com": { cleetus: { jobs: { version: 1, kinds: ["bad kind"] } } },
+        },
+      }),
+    ).toBeNull();
   });
 });

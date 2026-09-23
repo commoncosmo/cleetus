@@ -37,6 +37,7 @@ import {
 } from "../config/scratch-lifecycle";
 import type { VisionConfig } from "../config/vision";
 import { EventLog } from "../events/log";
+import type { EvidenceRegistry } from "../evidence";
 import { runGit } from "../git/run";
 import { type LearnPlaybookController, LearnPlaybookService } from "../learn/service";
 import { openDatabase } from "../lib/db";
@@ -180,6 +181,8 @@ export interface AcpRuntimeBundle {
   historyStore: SessionHistoryStore;
   /** The shared tool registry — MCP passthrough registers client servers' tools into it. */
   tools: ToolRegistry;
+  /** Connection-local evidence manifests and validated finding sets for ACP tools. */
+  evidenceRegistry: EvidenceRegistry;
   /** Cleetus-configured MCP names and connection state, shared by every ACP session. */
   configuredMcp: {
     names: Set<string>;
@@ -844,6 +847,7 @@ export async function buildAcpRuntime(opts: AcpRuntimeOptions): Promise<AcpRunti
     realSandbox,
     historyStore,
     tools,
+    evidenceRegistry: toolset.evidenceRegistry,
     configuredMcp: {
       names: configuredMcp.names,
       statuses: configuredMcp.statuses,

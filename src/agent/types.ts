@@ -1,5 +1,5 @@
 import type { Decision } from "../permission/types";
-import type { ToolResult } from "../tools/types";
+import type { ToolAuthorization, ToolResult } from "../tools/types";
 
 export interface RunTurnResult {
   assistantText: string;
@@ -72,4 +72,5 @@ export type ResolvePermission = (req: {
   tool: string;
   args: unknown;
   argsSummary: string;
+  authorization?: ToolAuthorization;
 }) => Promise<Decision>;
