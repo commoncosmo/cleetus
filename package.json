@@ -1,6 +1,6 @@
 {
   "name": "cleetus",
-  "version": "0.5.6",
+  "version": "0.5.7",
   "description": "Local-first agentic coding assistant for llama.cpp, LM Studio, and Ollama.",
   "license": "MIT",
   "author": "Common Cosmo",
@@ -49,6 +49,7 @@
     "fast-uri": "3.1.8",
     "hono": "4.13.7",
     "ip-address": "10.7.1",
+    "proxy-addr": "2.0.8",
     "qs": "6.16.0"
   },
   "devDependencies": {
