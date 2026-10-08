@@ -1,6 +1,6 @@
 # Cleetus
 
-Local-first, terminal-first, privacy-first coding agent for llama.cpp, LM Studio, and Ollama.  Cleetus
+Local-first, terminal-first, privacy-first coding agent for llama.cpp, LM Studio, Ollama, and oMLX.  Cleetus
 works in an interactive terminal, as a one-shot CLI, or as a headless ACP agent for compatible
 clients.  It keeps tools, permissions, workflows, skills, and session data under your control.
 
@@ -70,7 +70,7 @@ would put the energy: getting as much as possible out of smaller, local models.
 ## Start here
 
 1. Follow the [Quickstart](#quickstart) to configure a local model provider and run Cleetus.
-2. Read the [provider guide](docs/providers.md) when connecting llama.cpp, LM Studio, or Ollama.
+2. Read the [provider guide](docs/providers.md) when connecting llama.cpp, LM Studio, Ollama, or oMLX.
 3. Use the [documentation index](docs/README.md) for workflows, skills, editor integration, and
    maintainer documentation.
 
@@ -122,6 +122,9 @@ and its third-party notices remain reproducible.
      ollama:
        type: ollama
        base_url: http://localhost:11434
+     mac:
+       type: omlx
+       base_url: http://localhost:8000
    default_provider: local
    ```
 
@@ -333,7 +336,7 @@ into more detail on the larger features.
 # Providers (required) — name them whatever you like; define as many as you want.
 providers:
   lm:
-    type: lmstudio            # lmstudio | ollama | llama.cpp
+    type: lmstudio            # lmstudio | ollama | llama.cpp | omlx
     base_url: http://localhost:1234
     # api_key: ...            # optional; rarely needed for local servers
 default_provider: lm          # optional; disambiguates a model name found on >1 provider
@@ -519,7 +522,7 @@ ui:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `providers` | — (required) | Map of named inference servers. Each has `type` (`lmstudio`/`ollama`/`llama.cpp`), `base_url`, optional `api_key`. Base URLs omit `/v1`. |
+| `providers` | — (required) | Map of named inference servers. Each has `type` (`lmstudio`/`ollama`/`llama.cpp`/`omlx`), `base_url`, optional `api_key`. Base URLs omit `/v1`. |
 | `default_provider` | first provider | Which provider to prefer when a model name exists on several. |
 | `default_model` | unset | Start straight into a session; the picker only shows when no model resolves. |
 | `embeddings` | unset (disabled) | `{ provider, model }` for the vector store powering `/index` + `code_search`. |

@@ -1,7 +1,7 @@
 # Inference providers
 
 Cleetus connects to separately installed local inference servers. It supports llama.cpp,
-LM Studio, and Ollama as first-class provider types. Provider names are your own aliases; the
+LM Studio, Ollama, and oMLX as first-class provider types. Provider names are your own aliases; the
 `type` selects the adapter.
 
 ## Configuration
@@ -20,6 +20,9 @@ providers:
   ollama:
     type: ollama
     base_url: http://localhost:11434
+  mac:
+    type: omlx
+    base_url: http://localhost:8000
 
 default_provider: local
 # default_model: your-model-id
@@ -40,6 +43,10 @@ Run `cleetus --list-models` to check every configured provider. In an interactiv
 `/provider` to switch servers and `/model` to switch models. If the same model ID exists on more
 than one server, select its provider explicitly.
 
+On first launch without a configured provider, Cleetus probes the default localhost ports below
+and writes a configuration for servers that return models. Add remote servers or servers that
+require an API key manually.
+
 ## Supported providers
 
 | Type | Usual URL | Provider-specific behavior |
@@ -47,6 +54,7 @@ than one server, select its provider explicitly.
 | `llama.cpp` | `http://localhost:8080` | Uses `/v1` for models, streaming chat, tools, and embeddings. Reads `/props` for the effective loaded context and chat-template capabilities. |
 | `lmstudio` | `http://localhost:1234` | Uses the OpenAI-compatible API and reads `/api/v0/models` when available for loaded-context metadata. |
 | `ollama` | `http://localhost:11434` | Uses the OpenAI-compatible API and reads `/api/ps` and `/api/show` for loaded and architectural context metadata. |
+| `omlx` | `http://localhost:8000` | Uses the OpenAI-compatible API and reads the effective context window from `/v1/models` (`max_model_len`) when reported. |
 
 Embedding requests use the configured provider's `/v1/embeddings` route. The server must have an
 embedding-capable model available; ordinary chat models do not necessarily support embeddings.
@@ -98,14 +106,47 @@ Cleetus checks both the currently loaded context reported by `/api/ps` and model
 `/api/show`. Increase context with the model's `num_ctx` setting or the server's
 `OLLAMA_CONTEXT_LENGTH` setting when Cleetus reports a small window.
 
+## oMLX
+
+Start [oMLX](https://github.com/jundot/omlx) on your Apple Silicon Mac, using the macOS app or
+`omlx serve --model-dir ~/models`. Configure the server root as `http://localhost:8000`, without
+`/v1`. oMLX discovers models in its model directory and loads them on demand. Use the exact model
+ID or alias returned by `cleetus --list-models`.
+
+```yaml
+providers:
+  mac:
+    type: omlx
+    base_url: http://localhost:8000
+    # api_key: ${OMLX_API_KEY}  # if authentication is enabled on your server
+default_provider: mac
+default_model: your-model-id
+```
+
+For a server on another Mac, replace `localhost` with that Mac's reachable hostname or IP
+address, keeping port `8000` unless you changed it in oMLX. If authentication is enabled,
+uncomment `api_key` and set `OMLX_API_KEY` in Cleetus's environment. Cleetus sends the key as a
+Bearer token for model discovery, chat, and embeddings.
+
+Cleetus supports streamed text and reasoning, native tool calls, OpenAI-style structured output,
+and embeddings through oMLX's `/v1` routes. Choose a tool-capable chat model for coding, and
+configure a separate embedding model if you enable code indexing.
+
+Current oMLX servers report their effective context limit as `max_model_len` in `/v1/models`;
+Cleetus uses it for context budgeting. Set a per-model `max_context_window` in oMLX's admin
+settings when you need to change that limit. Servers without this field still work, but Cleetus
+cannot discover their context window and uses its configured budget and conservative capability
+fallback.
+
 ## Troubleshooting
 
-All three providers should answer an OpenAI-compatible model-list request:
+All supported providers should answer an OpenAI-compatible model-list request:
 
 ```bash
 curl http://localhost:8080/v1/models
 curl http://localhost:1234/v1/models
 curl http://localhost:11434/v1/models
+curl http://localhost:8000/v1/models
 ```
 
 If Cleetus can list a model but tool calls fail, verify that the selected model and its chat
