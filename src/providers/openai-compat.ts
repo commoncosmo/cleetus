@@ -3,7 +3,14 @@ import { detectFamily, recoverToolCalls } from "./families";
 import { fallbackStopSequences } from "./families/registry";
 import { fallbackParams } from "./families/shape";
 import { looksLikeTruncatedJson, parseToolCallEnvelope } from "./structured-output";
-import type { ChatOptions, ModelInfo, StreamEvent, ToolCall, ToolSchema } from "./types";
+import {
+  type ChatOptions,
+  type ModelInfo,
+  type StreamEvent,
+  type ToolCall,
+  type ToolSchema,
+  usableContextLength,
+} from "./types";
 import { toOpenAIMessage } from "./wire";
 
 export interface OpenAICompatOpts {
@@ -11,6 +18,8 @@ export interface OpenAICompatOpts {
   apiKey?: string;
   /** Some OpenAI-compatible servers prefix their paths differently. */
   pathPrefix?: string; // default "/v1"
+  /** Opt in only for servers whose model list reports an effective served window. */
+  modelContextLengthField?: "max_model_len";
   /** llama.cpp accepts the schema directly under response_format.schema rather than the
    *  nested OpenAI json_schema envelope. Its broadly compatible constrained-output form
    *  uses type json_object. */
@@ -73,10 +82,15 @@ export async function listModelsOpenAI(opts: OpenAICompatOpts): Promise<ModelInf
       `models request failed ${await describeError(res)}`,
     );
   }
-  const json = (await res.json()) as { data?: Array<{ id: string }> };
+  const json = (await res.json()) as { data?: Array<{ id: string; max_model_len?: unknown }> };
   if (!Array.isArray(json.data))
     throw new CleetusError("PROVIDER_INVALID_RESPONSE", "missing data array");
-  return json.data.map((m) => ({ id: m.id }));
+  return json.data.map((m) => {
+    const contextLength = opts.modelContextLengthField
+      ? usableContextLength(m[opts.modelContextLengthField])
+      : undefined;
+    return contextLength === undefined ? { id: m.id } : { id: m.id, contextLength };
+  });
 }
 
 function toOpenAITool(t: ToolSchema): unknown {

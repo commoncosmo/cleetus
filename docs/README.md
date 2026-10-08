@@ -11,7 +11,7 @@ reference, and contributor documentation.
 - [Skills](skills.md) — install and author reusable model-directed playbooks.
 - [Editing files from Cleetus](editor.md) — hand the interactive terminal to `$EDITOR` or
   `$VISUAL`, with compatibility profiles and a smoke harness.
-- [Inference providers](providers.md) — connect llama.cpp, LM Studio, or Ollama and understand
+- [Inference providers](providers.md) — connect llama.cpp, LM Studio, Ollama, or oMLX and understand
   provider-specific discovery, context, tool-template, and embedding behavior.
 - [Evidence and security capability roadmap](security-capabilities.md) — versioned evidence and
   finding contracts, ACP evidence resources, client-managed jobs, and the staged runtime roadmap.

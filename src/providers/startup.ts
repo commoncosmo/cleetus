@@ -34,7 +34,7 @@ export function resolveStartupChoice(catalog: Catalog, input: StartupInput): Sta
     return {
       kind: "error",
       message:
-        "no providers configured. add an lmstudio, ollama, or llama.cpp provider to ~/.config/cleetus/config.yaml",
+        "no providers configured. add an lmstudio, ollama, llama.cpp, or omlx provider to ~/.config/cleetus/config.yaml",
     };
   }
   if (requestedProvider && !providerNames.includes(requestedProvider)) {

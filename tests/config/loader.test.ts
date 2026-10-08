@@ -55,6 +55,22 @@ describe("loadConfig", () => {
     expect(cfg.defaultModel).toBe("my-model");
   });
 
+  it("loads an authenticated oMLX provider under a custom alias", async () => {
+    const path = join(dir, "config.yaml");
+    await writeFile(
+      path,
+      "providers:\n  mac:\n    type: omlx\n    base_url: https://models.example.test\n    api_key: test-key\ndefault_provider: mac\ndefault_model: coder\n",
+    );
+    const cfg = await loadConfig({ globalPath: path, projectDir: dir });
+    expect(cfg.providers.mac).toEqual({
+      type: "omlx",
+      baseUrl: "https://models.example.test",
+      apiKey: "test-key",
+    });
+    expect(cfg.defaultProvider).toBe("mac");
+    expect(cfg.defaultModel).toBe("coder");
+  });
+
   it("interpolates ${ENV_VAR} from process.env", async () => {
     process.env.CLEETUS_TEST_KEY = "secret-123";
     const path = join(dir, "config.yaml");

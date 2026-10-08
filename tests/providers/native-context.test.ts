@@ -92,6 +92,13 @@ describe("lowContextWarning", () => {
     expect(warning).toContain("LLAMA_ARG_CTX_SIZE");
     expect(warning).not.toContain("Ollama");
   });
+
+  it("gives oMLX-specific context guidance", () => {
+    const warning = lowContextWarning("m", 8192, LOW_CONTEXT_THRESHOLD, "omlx");
+    expect(warning).toContain("oMLX");
+    expect(warning).toContain("max_context_window");
+    expect(warning).not.toContain("Ollama");
+  });
 });
 
 describe("llama.cpp /props metadata", () => {

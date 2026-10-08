@@ -28,11 +28,21 @@ test("all up → all in well-known port order", async () => {
       return ["x"];
     },
   });
-  expect(r.map((d) => d.type)).toEqual(["lmstudio", "ollama", "llama.cpp"]);
+  expect(r.map((d) => d.type)).toEqual(["lmstudio", "ollama", "llama.cpp", "omlx"]);
   expect(candidates).toEqual([
     ["lmstudio", "http://localhost:1234"],
     ["ollama", "http://localhost:11434"],
     ["llama.cpp", "http://localhost:8080"],
+    ["omlx", "http://localhost:8000"],
+  ]);
+});
+
+test("detects oMLX on its default port", async () => {
+  const r = await detectLocalProviders({
+    probe: async (type) => (type === "omlx" ? ["my-coding-model"] : []),
+  });
+  expect(r).toEqual([
+    { type: "omlx", baseUrl: "http://localhost:8000", models: ["my-coding-model"] },
   ]);
 });
 

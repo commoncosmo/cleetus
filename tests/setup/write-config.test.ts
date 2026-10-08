@@ -29,6 +29,22 @@ test("writeDetectedConfig does not overwrite an existing config.yaml", () => {
   expect(readFileSync(join(globalDir, "config.yaml"), "utf8")).toBe("existing");
 });
 
+test("detected oMLX config round-trips with its default model", async () => {
+  const globalDir = mkdtempSync(join(tmpdir(), "cleetus-omlx-"));
+  const projectDir = mkdtempSync(join(tmpdir(), "cleetus-omlx-proj-"));
+  const path = writeDetectedConfig(globalDir, [
+    { type: "omlx", baseUrl: "http://localhost:8000", models: ["coder"] },
+  ]);
+  const config = await loadConfig({ globalPath: path!, projectDir });
+  expect(config.providers.omlx).toEqual({
+    type: "omlx",
+    baseUrl: "http://localhost:8000",
+    apiKey: undefined,
+  });
+  expect(config.defaultProvider).toBe("omlx");
+  expect(config.defaultModel).toBe("coder");
+});
+
 test("writeDetectedConfig returns null and writes nothing for an empty detection", () => {
   const globalDir = mkdtempSync(join(tmpdir(), "cleetus-wd3-"));
   const path = writeDetectedConfig(globalDir, []);
@@ -48,9 +64,11 @@ test("scaffoldConfig writes a parseable template + instructions, never overwriti
   expect(template).toContain("base_url: http://localhost:1234\n");
   expect(template).toContain("base_url: http://localhost:11434\n");
   expect(template).toContain("base_url: http://localhost:8080\n");
+  expect(template).toContain("type: omlx\n#     base_url: http://localhost:8000\n");
   expect(template).not.toContain("localhost:1234/v1");
   expect(template).not.toContain("localhost:11434/v1");
   expect(template).not.toContain("localhost:8080/v1");
+  expect(template).not.toContain("localhost:8000/v1");
   writeFileSync(path, "custom");
   scaffoldConfig(globalDir);
   expect(readFileSync(path, "utf8")).toBe("custom"); // not overwritten

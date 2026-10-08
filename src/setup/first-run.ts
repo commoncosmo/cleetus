@@ -21,6 +21,7 @@ const DEFAULT_CANDIDATES: { type: ProviderType; baseUrl: string }[] = [
   { type: "lmstudio", baseUrl: "http://localhost:1234" },
   { type: "ollama", baseUrl: "http://localhost:11434" },
   { type: "llama.cpp", baseUrl: "http://localhost:8080" },
+  { type: "omlx", baseUrl: "http://localhost:8000" },
 ];
 const DEFAULT_TIMEOUT_MS = 1500;
 
@@ -69,6 +70,9 @@ const SCAFFOLD_CONFIG = `# cleetus configuration — uncomment a provider, then 
 #   llama-cpp:
 #     type: llama.cpp
 #     base_url: http://localhost:8080
+#   omlx:
+#     type: omlx
+#     base_url: http://localhost:8000
 # default_provider: lmstudio
 # default_model: your-model-id
 `;
@@ -140,6 +144,6 @@ export async function firstRunSetup(
   const path = scaffoldConfig(globalDir);
   return {
     action: "exit",
-    message: `no local LM Studio, Ollama, or llama.cpp server found — wrote a starter config at ${path}; add a provider and re-run`,
+    message: `no local LM Studio, Ollama, llama.cpp, or oMLX server found — wrote a starter config at ${path}; add a provider and re-run`,
   };
 }
