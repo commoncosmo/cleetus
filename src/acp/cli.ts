@@ -19,6 +19,7 @@ export interface AcpCliOptions {
   scratch?: boolean;
   inheritProjectInstructions?: boolean;
   inheritProjectMemory?: boolean;
+  fuckit?: boolean;
   verbose?: boolean;
 }
 
@@ -55,6 +56,7 @@ export function parseAcpOptions(argv: string[]): AcpCliOptions {
       "do not inherit the project's instructions in this session",
     )
     .option("--no-project-memory", "do not inherit the project's memory in this session")
+    .option("--fuckit", "disable ordinary tool permission prompts (DANGEROUS)")
     .option("--verbose", "show warning and internal diagnostic notices")
     .allowExcessArguments()
     .allowUnknownOption();
@@ -78,6 +80,7 @@ export function parseAcpOptions(argv: string[]): AcpCliOptions {
     scratch?: boolean;
     projectInstructions?: boolean;
     projectMemory?: boolean;
+    fuckit?: boolean;
     verbose?: boolean;
   }>();
   return {
@@ -99,6 +102,7 @@ export function parseAcpOptions(argv: string[]): AcpCliOptions {
     scratch: o.scratch,
     inheritProjectInstructions: o.projectInstructions ?? true,
     inheritProjectMemory: o.projectMemory ?? true,
+    fuckit: o.fuckit,
     verbose: o.verbose,
   };
 }

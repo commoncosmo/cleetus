@@ -84,6 +84,8 @@ export interface AcpPermissionOpts {
   /** Silently-degraded sandbox consent state. When set and un-acked, the first bash prompt
    *  carries the degradation warning; any approval acknowledges it (persisted by the caller). */
   degraded?: { acked: boolean; persistAck: () => void };
+  /** Skip ordinary tool prompts after checking denies. Client jobs retain their consent contract. */
+  permissionsDisabled?: boolean;
 }
 
 export function makeAcpResolvePermission(
@@ -118,6 +120,8 @@ export function makeAcpResolvePermission(
     ) {
       return "deny";
     }
+
+    if (opts.permissionsDisabled && tool !== "job_start") return "allow";
 
     // Client jobs must carry validated structured authority. A scoped grant covers only the same
     // kind/effect/target and budgets no larger than those the client already approved.

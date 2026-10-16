@@ -305,6 +305,14 @@ the terminal application while routing supported file, terminal, permission, and
 through the client. Use `cleetus acp --help` for ACP-specific overrides. Multi-worker chat
 orchestration is currently available only through the terminal surface.
 
+To skip ordinary tool permission prompts, launch `cleetus acp --fuckit` (for example, use
+`"args": ["acp", "--fuckit"]` in the client's agent configuration). This requires the explicit
+launch flag; ACP does not inherit `permissions_disabled` from config. It also permits file writes
+outside the session's project directory. Explicit permission denials, Plan mode, secret-path and
+control-metadata guards, and sandbox restrictions still apply. Workflow authorization and
+client-managed job consent remain separate and can still prompt. A warning goes to stderr so
+stdout remains valid ACP JSON-RPC.
+
 ACP clients may supply a validated evidence manifest as an embedded text resource with media type
 `application/vnd.commoncosmo.cleetus-evidence-bundle+json`. Cleetus renders its bounded provenance
 metadata into citation handles such as `[evidence:access-log]`; it does not dereference the opaque
@@ -772,8 +780,9 @@ the complete source tree/root manifests, run a forced broad `git clean`, or invo
 generator directly over an existing project. Use focused file/Git tools; generators for a fresh
 target go through `scaffold`.
 
-Writes (`write_file`/`edit_file`) targeting a path outside the project directory always trigger a
-permission prompt, even under `--fuckit` or an allow rule.
+Writes (`write_file`/`edit_file`) targeting a path outside the project directory require explicit
+approval in normal mode. `--fuckit` permits these writes; secret-path and control-metadata guards
+still apply.
 
 ## Instruction files
 

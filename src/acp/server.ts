@@ -120,6 +120,7 @@ export async function runAcp(opts: AcpRuntimeOptions): Promise<void> {
     planModeHolder: bundle.planModeHolder,
     rulesForCwd: bundle.rulesForCwd,
     degradedConsent: bundle.degradedConsent,
+    permissionsDisabled: Boolean(opts.fuckit),
     verbose: opts.verbose,
     sessionConfig: bundle.sessionConfig,
     activeSessionHolder: bundle.activeSessionHolder,
