@@ -102,6 +102,8 @@ export interface SessionMethodDeps {
   rulesForCwd?: (cwd: string) => Promise<PermissionRules>;
   /** Optional — silently-degraded sandbox consent state; undefined when not degraded. */
   degradedConsent?: { acked: boolean; persistAck: () => void };
+  /** Explicit launch opt-in to bypass ordinary tool prompts; denies and client-job consent remain. */
+  permissionsDisabled?: boolean;
   /** Forward runtime events marked verbose-only to the ACP client. */
   verbose?: boolean;
   /** Advertised slash commands executable through the normal `session/prompt` path. */
@@ -155,6 +157,7 @@ export function registerSessionMethods(
     planModeHolder,
     rulesForCwd,
     degradedConsent,
+    permissionsDisabled = false,
     verbose = false,
     commands,
     sessionConfig,
@@ -435,6 +438,7 @@ export function registerSessionMethods(
               rules: sessionRules,
               persistPath: join(sessionCwd, ".cleetus", "permissions.yaml"),
               degraded: degradedConsent,
+              permissionsDisabled,
             },
           );
           if (workflowAuthorizationRouter) {

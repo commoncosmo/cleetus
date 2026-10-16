@@ -63,6 +63,74 @@ const READ_JOB_AUTHORIZATION: ToolAuthorization = {
   limits: { timeoutMs: 60_000, maxOutputBytes: 10_000, maxArtifactBytes: 20_000 },
 };
 
+describe("ACP permissions disabled", () => {
+  it("allows ordinary tools without prompting or recording grants or degraded-sandbox consent", async () => {
+    const grants = emptyGrants();
+    const degraded = {
+      acked: false,
+      persistAck: () => {
+        throw new Error("launch opt-in must not persist consent");
+      },
+    };
+    const resolve = makeAcpResolvePermission(clientThatThrowsIfAsked(), "s", grants, PROJECT, {
+      permissionsDisabled: true,
+      degraded,
+    });
+    for (const [tool, args] of [
+      ["bash", { command: "bun test" }],
+      ["write_file", { path: "src/new.ts", content: "hello" }],
+      ["write_file", { path: join(PROJECT, "..", "outside.ts"), content: "hello" }],
+      ["read_file", { path: "README.md" }],
+      ["mcp_test", {}],
+    ] as const) {
+      expect(await resolve({ tool, args, argsSummary: JSON.stringify(args) })).toBe("allow");
+    }
+    expect(grants).toEqual(emptyGrants());
+    expect(degraded.acked).toBe(false);
+  });
+
+  it("preserves session denials and persisted tool/path denials", async () => {
+    const grants = emptyGrants();
+    grants.denials.push({ tool: "bash", argsPattern: "session-denied" });
+    const resolve = makeAcpResolvePermission(clientThatThrowsIfAsked(), "s", grants, PROJECT, {
+      permissionsDisabled: true,
+      rules: {
+        project: [{ tool: "bash", argsPattern: "denied*", decision: "deny" }],
+        global: [{ pathPrefix: join(PROJECT, "private"), decision: "deny" }],
+      },
+    });
+    for (const argsSummary of ["session-denied", "denied command"]) {
+      expect(await resolve({ tool: "bash", args: { command: argsSummary }, argsSummary })).toBe(
+        "deny",
+      );
+    }
+    for (const tool of ["write_file", "read_file"]) {
+      expect(
+        await resolve({ tool, args: { path: "private/a.ts" }, argsSummary: "private/a.ts" }),
+      ).toBe("deny");
+    }
+  });
+
+  it("still prompts for client jobs and rejects jobs missing structured authorization", async () => {
+    const { client, calls } = clientPicking("allow_once");
+    const resolve = makeAcpResolvePermission(client, "s", emptyGrants(), PROJECT, {
+      permissionsDisabled: true,
+    });
+    expect(await resolve({ tool: "job_start", args: {}, argsSummary: "invalid" })).toBe("deny");
+    for (const effect of ["read", "active_network", "write"] as const) {
+      expect(
+        await resolve({
+          tool: "job_start",
+          args: {},
+          argsSummary: effect,
+          authorization: { ...READ_JOB_AUTHORIZATION, effect },
+        }),
+      ).toBe("allow");
+    }
+    expect(calls).toHaveLength(3);
+  });
+});
+
 describe("makeAcpResolvePermission", () => {
   it("maps allow_once to allow without recording a grant", async () => {
     const { client, calls } = clientPicking("allow_once");

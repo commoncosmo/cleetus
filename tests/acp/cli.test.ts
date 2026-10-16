@@ -97,3 +97,10 @@ test("parses --verbose and defaults it off", () => {
   expect(parseAcpOptions([...base]).verbose).toBeUndefined();
   expect(parseAcpOptions([...base, "--verbose"]).verbose).toBe(true);
 });
+
+test("parses --fuckit as an explicit opt-in and defaults it off", () => {
+  expect(parseAcpOptions([...base]).fuckit).toBeUndefined();
+  const options = parseAcpOptions([...base, "--fuckit", "--model", "m"]);
+  expect(options.fuckit).toBe(true);
+  expect(options.model).toBe("m");
+});

@@ -119,6 +119,8 @@ export interface AcpRuntimeOptions {
   inheritProjectInstructions?: boolean;
   /** `--no-project-memory` → false. Default true. */
   inheritProjectMemory?: boolean;
+  /** Explicit `--fuckit` launch flag: skip ordinary tool prompts, preserving denies and guards. */
+  fuckit?: boolean;
   /** `--verbose` forwards warning and internal diagnostic notices to the ACP client. */
   verbose?: boolean;
 }
@@ -235,6 +237,9 @@ export interface AcpRuntimeBundle {
  *  and checkpoints are selected by canonical session cwd. Build gates and orchestration remain
  *  deliberately deferred and are tracked in the project todo list. */
 export async function buildAcpRuntime(opts: AcpRuntimeOptions): Promise<AcpRuntimeBundle> {
+  if (opts.fuckit) {
+    console.error("[cleetus acp] WARNING: ordinary tool permission prompts disabled (--fuckit)");
+  }
   const globalDir = resolveConfigRoot(opts.configDir, homedir(), process.cwd());
   const GLOBAL_CONFIG = join(globalDir, "config.yaml");
   const launchCwd = realpathSync(process.cwd());
@@ -652,6 +657,7 @@ export async function buildAcpRuntime(opts: AcpRuntimeOptions): Promise<AcpRunti
     hooks: projectAdapters.hooks,
     checkpoints: projectAdapters.checkpoints,
     planMode: () => planModeHolder.current,
+    allowOutsideProject: () => Boolean(opts.fuckit),
     modelContextLength: (requestedModel?: string, requestedProvider?: string) => {
       const active = currentSessionConfig().active;
       return modelContext.get(requestedProvider ?? active.provider, requestedModel ?? active.model);
