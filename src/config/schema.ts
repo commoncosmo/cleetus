@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const ProviderConfigSchema = z.object({
-  type: z.enum(["lmstudio", "ollama", "llama.cpp", "omlx"]),
+  type: z.enum(["lmstudio", "ollama", "llama.cpp", "omlx", "vllm"]),
   base_url: z.string().url(),
   api_key: z.string().optional(),
 });

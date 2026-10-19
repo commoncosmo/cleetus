@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { stringify as stringifyYaml } from "yaml";
 import type { CleetusConfig, ProviderConfig, ProviderType } from "../config/types";
 import { buildProvider } from "../providers/factory";
+import { listModelsOpenAI } from "../providers/openai-compat";
 import { privateDirectory, writePrivateFile } from "../security/private-state";
 
 export interface DetectedProvider {
@@ -26,7 +27,12 @@ const DEFAULT_CANDIDATES: { type: ProviderType; baseUrl: string }[] = [
 const DEFAULT_TIMEOUT_MS = 1500;
 
 async function defaultProbe(type: ProviderType, baseUrl: string): Promise<string[]> {
-  const models = await buildProvider(type, baseUrl).listModels();
+  // oMLX and vLLM share port 8000. Only auto-configure an identified oMLX server;
+  // vLLM remains explicitly configured, including its model-specific parser setup.
+  const models =
+    type === "omlx"
+      ? await listModelsOpenAI({ baseUrl, requiredModelOwner: "omlx" })
+      : await buildProvider(type, baseUrl).listModels();
   return models.map((m) => m.id);
 }
 
@@ -72,6 +78,9 @@ const SCAFFOLD_CONFIG = `# cleetus configuration — uncomment a provider, then 
 #     base_url: http://localhost:8080
 #   omlx:
 #     type: omlx
+#     base_url: http://localhost:8000
+#   gpu:  # vLLM requires explicit configuration; see docs/providers.md
+#     type: vllm
 #     base_url: http://localhost:8000
 # default_provider: lmstudio
 # default_model: your-model-id

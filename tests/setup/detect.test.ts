@@ -58,3 +58,23 @@ test("a hanging probe is excluded via the timeout", async () => {
   const r = await detectLocalProviders({ probe, timeoutMs: 50 });
   expect(r.map((d) => d.type)).toEqual(["lmstudio"]);
 });
+
+test("the default oMLX probe does not auto-configure vLLM or unidentified port-8000 servers", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const owner of ["vllm", undefined, "omlx"]) {
+      globalThis.fetch = ((url: string) => {
+        if (url !== "http://localhost:8000/v1/models") throw new Error("down");
+        return Promise.resolve(Response.json({ data: [{ id: "coder", owned_by: owner }] }));
+      }) as typeof fetch;
+      const found = await detectLocalProviders();
+      expect(found).toEqual(
+        owner === "omlx"
+          ? [{ type: "omlx", baseUrl: "http://localhost:8000", models: ["coder"] }]
+          : [],
+      );
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
