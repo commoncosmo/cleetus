@@ -4,11 +4,13 @@ import { LMStudioProvider } from "./lmstudio";
 import { OllamaProvider } from "./ollama";
 import { OMLXProvider } from "./omlx";
 import type { Provider } from "./types";
+import { VLLMProvider } from "./vllm";
 
 export function buildProvider(type: string, baseUrl: string, apiKey?: string): Provider {
   if (type === "lmstudio") return new LMStudioProvider({ baseUrl, apiKey });
   if (type === "ollama") return new OllamaProvider({ baseUrl, apiKey });
   if (type === "llama.cpp") return new LlamaCppProvider({ baseUrl, apiKey });
   if (type === "omlx") return new OMLXProvider({ baseUrl, apiKey });
+  if (type === "vllm") return new VLLMProvider({ baseUrl, apiKey });
   throw new CleetusError("CONFIG_INVALID", `unknown provider type: ${type}`);
 }

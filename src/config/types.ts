@@ -14,7 +14,7 @@ import type { SmokeRunConfig } from "./smoke-run";
 import type { StreamWatchdogConfig } from "./stream-watchdog";
 import type { VisionConfig } from "./vision";
 
-export type ProviderType = "lmstudio" | "ollama" | "llama.cpp" | "omlx";
+export type ProviderType = "lmstudio" | "ollama" | "llama.cpp" | "omlx" | "vllm";
 
 export interface ProviderConfig {
   type: ProviderType;

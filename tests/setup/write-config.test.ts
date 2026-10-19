@@ -65,6 +65,7 @@ test("scaffoldConfig writes a parseable template + instructions, never overwriti
   expect(template).toContain("base_url: http://localhost:11434\n");
   expect(template).toContain("base_url: http://localhost:8080\n");
   expect(template).toContain("type: omlx\n#     base_url: http://localhost:8000\n");
+  expect(template).toContain("type: vllm\n#     base_url: http://localhost:8000\n");
   expect(template).not.toContain("localhost:1234/v1");
   expect(template).not.toContain("localhost:11434/v1");
   expect(template).not.toContain("localhost:8080/v1");

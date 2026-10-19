@@ -20,6 +20,8 @@ export interface OpenAICompatOpts {
   pathPrefix?: string; // default "/v1"
   /** Opt in only for servers whose model list reports an effective served window. */
   modelContextLengthField?: "max_model_len";
+  /** Discovery only: a shared port must not misidentify another OpenAI-compatible server. */
+  requiredModelOwner?: string;
   /** llama.cpp accepts the schema directly under response_format.schema rather than the
    *  nested OpenAI json_schema envelope. Its broadly compatible constrained-output form
    *  uses type json_object. */
@@ -82,10 +84,15 @@ export async function listModelsOpenAI(opts: OpenAICompatOpts): Promise<ModelInf
       `models request failed ${await describeError(res)}`,
     );
   }
-  const json = (await res.json()) as { data?: Array<{ id: string; max_model_len?: unknown }> };
+  const json = (await res.json()) as {
+    data?: Array<{ id: string; max_model_len?: unknown; owned_by?: unknown }>;
+  };
   if (!Array.isArray(json.data))
     throw new CleetusError("PROVIDER_INVALID_RESPONSE", "missing data array");
-  return json.data.map((m) => {
+  const models = opts.requiredModelOwner
+    ? json.data.filter((m) => m.owned_by === opts.requiredModelOwner)
+    : json.data;
+  return models.map((m) => {
     const contextLength = opts.modelContextLengthField
       ? usableContextLength(m[opts.modelContextLengthField])
       : undefined;

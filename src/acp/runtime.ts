@@ -289,7 +289,7 @@ export async function buildAcpRuntime(opts: AcpRuntimeOptions): Promise<AcpRunti
 
   if (Object.keys(config.providers).length === 0) {
     throw new Error(
-      `no providers configured. add an lmstudio, ollama, llama.cpp, or omlx provider to ${GLOBAL_CONFIG}`,
+      `no providers configured. add an lmstudio, ollama, llama.cpp, omlx, or vllm provider to ${GLOBAL_CONFIG}`,
     );
   }
 

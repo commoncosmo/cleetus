@@ -15,6 +15,21 @@ afterEach(async () => {
 });
 
 describe("loadConfig", () => {
+  it("loads an explicitly configured authenticated vLLM server and served alias", async () => {
+    const path = join(dir, "config.yaml");
+    await writeFile(
+      path,
+      "providers:\n  gpu:\n    type: vllm\n    base_url: https://models.example.test\n    api_key: test-key\ndefault_provider: gpu\ndefault_model: qwen2.5-7b-instruct\n",
+    );
+    const cfg = await loadConfig({ globalPath: path, projectDir: dir });
+    expect(cfg.providers.gpu).toEqual({
+      type: "vllm",
+      baseUrl: "https://models.example.test",
+      apiKey: "test-key",
+    });
+    expect(cfg.defaultProvider).toBe("gpu");
+    expect(cfg.defaultModel).toBe("qwen2.5-7b-instruct");
+  });
   it("loads providers and defaults from a yaml file", async () => {
     const path = join(dir, "config.yaml");
     await writeFile(
