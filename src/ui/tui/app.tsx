@@ -2062,10 +2062,19 @@ export function App(props: AppProps) {
   async function handlePermission(action: PermissionAction) {
     const p = promptRef.current;
     if (!p) return;
+    const projectTrust = {
+      projectDir: props.projectDir,
+      globalPath: props.globalPermissionsPath,
+      trustGlobalWorkspace: props.launchScope === "global",
+    };
     if (typeof action === "object" && action.kind === "grant") {
       const path =
         action.scope === "project" ? props.projectPermissionsPath : props.globalPermissionsPath;
-      await persistRule(path, { ...action.rule, decision: action.decision });
+      await persistRule(
+        path,
+        { ...action.rule, decision: action.decision },
+        action.scope === "project" ? projectTrust : undefined,
+      );
       addRule(props.permissions, action.scope, action.rule, action.decision);
       promptRef.current = null;
       setPrompt(null);
@@ -2075,7 +2084,11 @@ export function App(props: AppProps) {
     const decision: Decision = action === "deny" ? "deny" : "allow";
     if (!p.escapes) {
       if (action === "allow_project") {
-        await persistRule(props.projectPermissionsPath, { tool: p.tool, decision: "allow" });
+        await persistRule(
+          props.projectPermissionsPath,
+          { tool: p.tool, decision: "allow" },
+          projectTrust,
+        );
         // Update the live rules too — they are loaded once at startup, so without
         // this the grant only takes effect on the next launch and the prompt repeats.
         addAllowRule(props.permissions, "project", p.tool);

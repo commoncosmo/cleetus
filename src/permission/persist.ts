@@ -1,17 +1,34 @@
 import { mkdir, readFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { CleetusError } from "../lib/errors";
 import { writePrivateFile } from "../security/private-state";
+import {
+  type ProjectTrustOptions,
+  approveSavedProjectPermissions,
+  readTrustedProjectFile,
+} from "../security/project-trust";
 import type { PermissionRule } from "./types";
 
 // NOTE: read-modify-write is not atomic. Safe for Phase 0 (single-process app);
 // will need locking when multiple agents share a project (Phase 5).
-export async function persistRule(filePath: string, rule: PermissionRule): Promise<void> {
+export async function persistRule(
+  filePath: string,
+  rule: PermissionRule,
+  projectTrust?: ProjectTrustOptions,
+): Promise<void> {
+  if (
+    projectTrust &&
+    resolve(filePath) !== resolve(projectTrust.projectDir, ".cleetus", "permissions.yaml")
+  ) {
+    throw new Error("Saved project approval must target the project's permissions file.");
+  }
   await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
   let existing: { rules: unknown[] } = { rules: [] };
   try {
-    const text = await readFile(filePath, "utf8");
+    const text = projectTrust
+      ? ((await readTrustedProjectFile(projectTrust, "permissions.yaml")) ?? "")
+      : await readFile(filePath, "utf8");
     let parsed: unknown;
     try {
       parsed = parseYaml(text) ?? {};
@@ -57,5 +74,7 @@ export async function persistRule(filePath: string, rule: PermissionRule): Promi
       (r as Record<string, unknown>).max_artifact_bytes === yamlRule.max_artifact_bytes,
   );
   if (!duplicate) existing.rules.push(yamlRule);
-  writePrivateFile(filePath, stringifyYaml(existing));
+  const text = stringifyYaml(existing);
+  writePrivateFile(filePath, text);
+  if (projectTrust) await approveSavedProjectPermissions(projectTrust, text);
 }

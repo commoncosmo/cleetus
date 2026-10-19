@@ -224,6 +224,7 @@ export interface AcpRuntimeBundle {
   /** Per-session project/global permission rule loader (project layer from the session's cwd,
    *  cached per cwd). */
   rulesForCwd: (cwd: string) => Promise<PermissionRules>;
+  globalConfigPath?: string;
   /** Silently-degraded sandbox consent state; undefined when the sandbox is not degraded. */
   degradedConsent?: { acked: boolean; persistAck: () => void };
   dispose: () => Promise<void>;
@@ -243,12 +244,13 @@ export async function buildAcpRuntime(opts: AcpRuntimeOptions): Promise<AcpRunti
   const globalDir = resolveConfigRoot(opts.configDir, homedir(), process.cwd());
   const GLOBAL_CONFIG = join(globalDir, "config.yaml");
   const launchCwd = realpathSync(process.cwd());
-  const preConfig = await loadConfig({ globalPath: GLOBAL_CONFIG, projectDir: launchCwd });
-  // global_workspace_dir must be cwd-independent (spec §D): read it from the global config alone,
-  // not the cwd-merged preConfig where a project .cleetus/config.yaml could shadow it.
-  const globalWorkspaceDir = opts.global
-    ? (await loadConfig({ globalPath: GLOBAL_CONFIG, projectDir: globalDir })).globalWorkspaceDir
-    : undefined;
+  // Global/scratch launches must not read or require trust in the directory they launch from.
+  const preConfig = await loadConfig({
+    globalPath: GLOBAL_CONFIG,
+    projectDir: launchCwd,
+    globalOnly: opts.global || opts.scratch,
+  });
+  const globalWorkspaceDir = opts.global ? preConfig.globalWorkspaceDir : undefined;
   const launchScope: LaunchScope = establishLaunchScope(
     {
       global: opts.global ?? false,
@@ -270,7 +272,11 @@ export async function buildAcpRuntime(opts: AcpRuntimeOptions): Promise<AcpRunti
   const loaded =
     launchScope.kind === "project"
       ? preConfig
-      : await loadConfig({ globalPath: GLOBAL_CONFIG, projectDir });
+      : await loadConfig({
+          globalPath: GLOBAL_CONFIG,
+          projectDir,
+          trustGlobalWorkspace: launchScope.kind === "global",
+        });
   // Overlay per-launch routing tiers from flags (flag > config). Orchestration is NOT overlaid on
   // the ACP path — the ACP runtime has no orchestration engine (chat-orchestration is deferred).
   const { config, warnings: overrideWarnings } = applyLaunchOverrides(loaded, {
@@ -353,7 +359,10 @@ export async function buildAcpRuntime(opts: AcpRuntimeOptions): Promise<AcpRunti
 
   // Project rules load per-session from the session's OWN cwd — the same file "Always reject"
   // persists to — instead of once from the launch dir (persist/load cwd asymmetry Minor).
-  const rulesForCwd = makeRulesForCwd(join(globalDir, "permissions.yaml"));
+  const rulesForCwd = makeRulesForCwd(
+    join(globalDir, "permissions.yaml"),
+    launchScope.kind === "global" ? projectDir : undefined,
+  );
 
   // Mutable holder — session-methods swaps `current` on each turn so the runtime always delegates
   // to the per-turn resolver without being rebuilt. Safe default: deny while no turn is active.
@@ -379,7 +388,12 @@ export async function buildAcpRuntime(opts: AcpRuntimeOptions): Promise<AcpRunti
   };
   const projectServiceHolder: AcpProjectServiceHolder = {};
   const projectServices = new AcpProjectServiceRegistry({
-    loadConfig: (cwd) => loadConfig({ globalPath: GLOBAL_CONFIG, projectDir: cwd }),
+    loadConfig: (cwd) =>
+      loadConfig({
+        globalPath: GLOBAL_CONFIG,
+        projectDir: cwd,
+        trustGlobalWorkspace: launchScope.kind === "global" && cwd === projectDir,
+      }),
     sandbox: delegatingSandbox,
     log,
     db,
@@ -884,6 +898,7 @@ export async function buildAcpRuntime(opts: AcpRuntimeOptions): Promise<AcpRunti
     workflowController,
     workflowAuthorizationRouter,
     rulesForCwd,
+    globalConfigPath: GLOBAL_CONFIG,
     degradedConsent,
     dispose,
   };

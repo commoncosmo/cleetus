@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { CleetusError } from "../lib/errors";
-import { readTrustedProjectFile } from "../security/project-trust";
+import { type ProjectTrustOptions, readTrustedProjectFile } from "../security/project-trust";
 import type { PermissionRule, PermissionRules } from "./types";
 
 const RuleSchema = z
@@ -86,11 +86,7 @@ async function readRules(path: string, approvedText?: string | null): Promise<Pe
   }));
 }
 
-export interface LoadPermissionsOptions {
-  globalPath: string;
-  projectDir: string;
-  trustStoreDir?: string;
-}
+export interface LoadPermissionsOptions extends ProjectTrustOptions {}
 
 export async function loadPermissions(opts: LoadPermissionsOptions): Promise<PermissionRules> {
   const [project, global] = await Promise.all([
@@ -108,12 +104,19 @@ export async function loadPermissions(opts: LoadPermissionsOptions): Promise<Per
  *  (PR #266-#269 Minor: persist-path vs load-path cwd asymmetry). Cached per cwd (read once; no
  *  per-turn reads). A failed load is evicted so a fixed permissions.yaml is picked up on the
  *  next prompt instead of caching the rejection forever. */
-export function makeRulesForCwd(globalPath: string): (cwd: string) => Promise<PermissionRules> {
+export function makeRulesForCwd(
+  globalPath: string,
+  globalWorkspaceDir?: string,
+): (cwd: string) => Promise<PermissionRules> {
   const cache = new Map<string, Promise<PermissionRules>>();
   return (cwd) => {
     let pending = cache.get(cwd);
     if (pending == null) {
-      pending = loadPermissions({ globalPath, projectDir: cwd });
+      pending = loadPermissions({
+        globalPath,
+        projectDir: cwd,
+        trustGlobalWorkspace: cwd === globalWorkspaceDir,
+      });
       pending.catch(() => cache.delete(cwd));
       cache.set(cwd, pending);
     }

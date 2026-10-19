@@ -5,7 +5,7 @@ import { DEFAULT_EFFORT } from "../agent/effort";
 import { DEFAULT_PERSONALITY } from "../agent/personalities";
 import { DEFAULT_PERSONA } from "../agent/personas";
 import { CleetusError } from "../lib/errors";
-import { readTrustedProjectFile } from "../security/project-trust";
+import { type ProjectTrustOptions, readTrustedProjectFile } from "../security/project-trust";
 import { resolveAttachments } from "./attachments";
 import { resolveBuildGate } from "./build-gate";
 import { resolveCheckpoint } from "./checkpoint";
@@ -129,18 +129,19 @@ function resolveScopedPath(val: string | undefined, baseDir: string): string | u
   return isAbsolute(val) ? val : resolve(baseDir, val);
 }
 
-export interface LoadConfigOptions {
-  globalPath: string;
-  projectDir: string;
-  trustStoreDir?: string;
+export interface LoadConfigOptions extends ProjectTrustOptions {
+  /** Read only user-owned global configuration when choosing a launch scope. */
+  globalOnly?: boolean;
 }
 
 export async function loadConfig(opts: LoadConfigOptions): Promise<CleetusConfig> {
   const global = await readYaml(opts.globalPath);
-  const project = await readYaml(
-    join(opts.projectDir, ".cleetus", "config.yaml"),
-    await readTrustedProjectFile(opts, "config.yaml"),
-  );
+  const project = opts.globalOnly
+    ? null
+    : await readYaml(
+        join(opts.projectDir, ".cleetus", "config.yaml"),
+        await readTrustedProjectFile(opts, "config.yaml"),
+      );
 
   const g = global ? normalize(global) : {};
   const p = project ? normalize(project) : {};

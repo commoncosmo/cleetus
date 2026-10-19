@@ -876,18 +876,34 @@ automatically.
 ### Review project configuration before first use
 
 Project `.cleetus/config.yaml` and `.cleetus/permissions.yaml` can grant code-execution authority.
-Before loading them, Cleetus requires explicit approval of their current contents:
+Before first use at a project location, Cleetus requires explicit approval of their current contents:
 
 ```sh
 cleetus trust          # display file fingerprints; does not approve
 # Review the two files locally before continuing.
 cleetus trust --yes
+# Review/approve the global workspace from any directory:
+cleetus trust --global
+cleetus trust --global --yes
+# Or target a specific project without changing directories:
+cleetus trust --directory /path/to/project --yes
 ```
 
 Use the same `--config-dir` for trust and normal launches; it must be outside the project.
-Changed configuration (including saved permission-rule edits) requires reapproval. ACP/editor
-launches use the same gate: approve from a terminal first. Projects without these files need no
-approval. MCP credentials must be passed explicitly in the server's `env` configuration; arbitrary
+After approval, comments, whitespace, and YAML mapping order do not require reapproval. Theme/UI,
+streaming, effort/personality, loop limits, context budgets, watchdogs, model profiles/capability,
+model-family handling, image resizing, and malformed-path tuning can also change without
+reapproval. Provider/model selection, MCP servers, hooks, system-prompt files, permissions,
+sandbox settings, and other configuration changes still require review. Permission rule order
+remains significant. Saving a project permission decision in Cleetus explicitly approves the
+updated permission file; external rule edits still require reapproval.
+
+Approvals from older versions remain valid for unchanged files. Run `cleetus trust --yes` once
+(with `--global` when appropriate) to enable the new comparison policy for those approvals.
+Trust errors include a command targeting the exact workspace and config directory. Global and
+scratch launches only check their selected workspace, without loading the launch directory's
+project config. ACP/editor launches use the same gate: approve from a terminal first.
+Projects without these files need no approval. MCP credentials must be passed explicitly in the server's `env` configuration; arbitrary
 parent environment variables are no longer inherited. See [SECURITY.md](SECURITY.md) for boundaries
 and limitations.
 

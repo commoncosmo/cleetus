@@ -119,6 +119,8 @@ export async function runAcp(opts: AcpRuntimeOptions): Promise<void> {
     evidenceRegistry: bundle.evidenceRegistry,
     planModeHolder: bundle.planModeHolder,
     rulesForCwd: bundle.rulesForCwd,
+    globalConfigPath: bundle.globalConfigPath,
+    trustGlobalWorkspace: bundle.launchScope.kind === "global",
     degradedConsent: bundle.degradedConsent,
     permissionsDisabled: Boolean(opts.fuckit),
     verbose: opts.verbose,

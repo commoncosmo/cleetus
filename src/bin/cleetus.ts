@@ -341,14 +341,13 @@ async function main(argv: string[]): Promise<number> {
   const GLOBAL_PERMS = join(GLOBAL_DIR, "permissions.yaml");
   const GLOBAL_INSTR = join(GLOBAL_DIR, "instructions.md");
   const GLOBAL_MEMORY = join(GLOBAL_DIR, "memory.md");
-  // Load the global config first (it is where global_workspace_dir lives) to pick the scope dir,
-  // then chdir, then load the merged config from the now-correct project dir.
-  const preConfig = await loadConfig({ globalPath: GLOBAL_CONFIG, projectDir: launchCwd });
-  // global_workspace_dir must be cwd-independent (spec §D): read it from the global config alone,
-  // not the cwd-merged preConfig where a project .cleetus/config.yaml could shadow it.
-  const globalWorkspaceDir = opts.global
-    ? (await loadConfig({ globalPath: GLOBAL_CONFIG, projectDir: GLOBAL_DIR })).globalWorkspaceDir
-    : undefined;
+  // Global/scratch launches must not read or require trust in the directory they launch from.
+  const preConfig = await loadConfig({
+    globalPath: GLOBAL_CONFIG,
+    projectDir: launchCwd,
+    globalOnly: opts.global || opts.scratch,
+  });
+  const globalWorkspaceDir = opts.global ? preConfig.globalWorkspaceDir : undefined;
   const scope: LaunchScope = establishLaunchScope(
     {
       global: opts.global ?? false,
@@ -370,10 +369,11 @@ async function main(argv: string[]): Promise<number> {
   const projectHome = scope.kind === "project" ? opts.projectDir : undefined;
   const inheritProjectInstructions = opts.projectInstructions ?? true;
   const inheritProjectMemory = opts.projectMemory ?? true;
+  const trustGlobalWorkspace = scope.kind === "global";
   let config =
     scope.kind === "project"
       ? preConfig
-      : await loadConfig({ globalPath: GLOBAL_CONFIG, projectDir });
+      : await loadConfig({ globalPath: GLOBAL_CONFIG, projectDir, trustGlobalWorkspace });
 
   // First run (no provider configured): auto-detect a local server and continue, or scaffold and exit.
   if (Object.keys(config.providers).length === 0) {
@@ -453,7 +453,11 @@ async function main(argv: string[]): Promise<number> {
     embedModel: embedder?.model ?? "",
   });
 
-  const rules = await loadPermissions({ globalPath: GLOBAL_PERMS, projectDir });
+  const rules = await loadPermissions({
+    globalPath: GLOBAL_PERMS,
+    projectDir,
+    trustGlobalWorkspace,
+  });
 
   const sessionsDbPath = resolveSessionDbPath(projectDir, opts.sessionDb);
   ensureParentDir(sessionsDbPath);
@@ -1816,7 +1820,7 @@ async function main(argv: string[]): Promise<number> {
         });
       },
       async reload() {
-        await loadConfig({ globalPath: GLOBAL_CONFIG, projectDir });
+        await loadConfig({ globalPath: GLOBAL_CONFIG, projectDir, trustGlobalWorkspace });
         return "Configuration is valid. Restart Cleetus to apply all configuration changes.";
       },
     },
@@ -1833,6 +1837,7 @@ async function main(argv: string[]): Promise<number> {
         const reloaded = await loadPermissions({
           globalPath: GLOBAL_PERMS,
           projectDir,
+          trustGlobalWorkspace,
         });
         rules.project.splice(0, rules.project.length, ...reloaded.project);
         rules.global.splice(0, rules.global.length, ...reloaded.global);
