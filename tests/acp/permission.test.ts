@@ -8,6 +8,7 @@ import {
   type SessionGrants,
   makeAcpResolvePermission,
 } from "../../src/acp/permission";
+import { loadPermissions } from "../../src/permission/loader";
 import type { PermissionRules } from "../../src/permission/types";
 import type { ToolAuthorization } from "../../src/tools/types";
 
@@ -619,6 +620,23 @@ describe("makeAcpResolvePermission — REJECT_ALWAYS session denial + persisted 
     expect(text).toContain("decision: deny");
     expect(text).toContain("args_pattern: rm -rf x");
     await rm(dir, { recursive: true, force: true });
+  });
+
+  it("REJECT_ALWAYS approves its saved permission file for the next process", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cleetus-acp-deny-trust-"));
+    const projectDir = join(dir, "project");
+    const globalPath = join(dir, "global", "config.yaml");
+    const { client } = clientPicking("reject_always");
+    const resolve = makeAcpResolvePermission(client, "s1", emptyGrants(), projectDir, {
+      persistPath: join(projectDir, ".cleetus", "permissions.yaml"),
+      globalConfigPath: globalPath,
+    });
+    try {
+      await resolve({ tool: "bash", args: { command: "danger" }, argsSummary: "danger" });
+      expect((await loadPermissions({ projectDir, globalPath })).project[0]?.decision).toBe("deny");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("REJECT_ALWAYS mirrors the deny into opts.rules so a fresh resolver denies without prompting", async () => {

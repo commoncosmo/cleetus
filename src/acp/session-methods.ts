@@ -100,6 +100,9 @@ export interface SessionMethodDeps {
   /** Optional — per-cwd persisted rules (project layer from the session's cwd, global shared);
    *  only DENY outcomes are honored. */
   rulesForCwd?: (cwd: string) => Promise<PermissionRules>;
+  /** Global config file identifying the external project trust store. */
+  globalConfigPath?: string;
+  trustGlobalWorkspace?: boolean;
   /** Optional — silently-degraded sandbox consent state; undefined when not degraded. */
   degradedConsent?: { acked: boolean; persistAck: () => void };
   /** Explicit launch opt-in to bypass ordinary tool prompts; denies and client-job consent remain. */
@@ -437,6 +440,8 @@ export function registerSessionMethods(
             {
               rules: sessionRules,
               persistPath: join(sessionCwd, ".cleetus", "permissions.yaml"),
+              globalConfigPath: deps.globalConfigPath,
+              trustGlobalWorkspace: deps.trustGlobalWorkspace,
               degraded: degradedConsent,
               permissionsDisabled,
             },

@@ -81,6 +81,9 @@ export interface AcpPermissionOpts {
   rules?: PermissionRules;
   /** Project permissions.yaml path; when set, "Always reject" persists the deny rule. */
   persistPath?: string;
+  /** Global config file identifying the external trust store for saved project decisions. */
+  globalConfigPath?: string;
+  trustGlobalWorkspace?: boolean;
   /** Silently-degraded sandbox consent state. When set and un-acked, the first bash prompt
    *  carries the degradation warning; any approval acknowledges it (persisted by the caller). */
   degraded?: { acked: boolean; persistAck: () => void };
@@ -270,11 +273,17 @@ export function makeAcpResolvePermission(
         if (opts.rules) addRule(opts.rules, "project", { tool, argsPattern: argsSummary }, "deny");
         if (opts.persistPath) {
           try {
-            await persistRule(opts.persistPath, {
-              tool,
-              argsPattern: argsSummary,
-              decision: "deny",
-            });
+            await persistRule(
+              opts.persistPath,
+              { tool, argsPattern: argsSummary, decision: "deny" },
+              opts.globalConfigPath
+                ? {
+                    projectDir,
+                    globalPath: opts.globalConfigPath,
+                    trustGlobalWorkspace: opts.trustGlobalWorkspace,
+                  }
+                : undefined,
+            );
           } catch {
             // persistence is best-effort; the session denial above still holds
           }

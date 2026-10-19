@@ -19,8 +19,16 @@ making this repository public.
 - Run `cleetus trust` to list the fingerprints of project configuration. Review
   `.cleetus/config.yaml` and `.cleetus/permissions.yaml` before approving them with
   `cleetus trust --yes`. Use the same `--config-dir` as your normal launch. The trust store must
-  be outside the project. Changed configuration or a different project location requires approval
-  again; loading never grants trust automatically, including noninteractive/ACP execution.
+  be outside the project. Use `cleetus trust --global --yes` for the global workspace or
+  `cleetus trust --directory /path/to/project --yes` from another directory. A different project
+  location or changed configuration authority requires approval again. Comments, YAML mapping
+  order, and allowlisted presentation/tuning settings preserve an existing approval; provider/model
+  selection, execution settings, sandbox settings, and externally edited permission rules do not.
+  Rule array order remains significant. Explicitly saving a project permission decision approves
+  only the resulting permissions file, without approving unrelated configuration changes.
+  Loading never grants trust automatically, including noninteractive/ACP execution. Legacy
+  exact-byte approvals remain valid; explicitly reapprove once to adopt semantic comparison.
+  Global/scratch launches check only their selected workspace's project configuration.
 - Configuration is executable authority: trusted MCP servers and hooks can run code, and trusted
   configuration can select providers, permissions, and sandbox behavior. Only approve projects
   and MCP implementations you trust. MCP processes are not confined by the Bash sandbox.
