@@ -1,10 +1,29 @@
 import { describe, expect, it } from "bun:test";
 import {
   isClearInputKey,
+  isNavDownKey,
+  isNavUpKey,
   isNewlineKey,
   isToggleReasoningKey,
   isToggleTestDetailsKey,
 } from "../../../src/ui/tui/keys";
+
+describe("isNavUpKey / isNavDownKey", () => {
+  it("accepts arrows and Ctrl+P/Ctrl+N", () => {
+    expect(isNavUpKey("", { upArrow: true })).toBe(true);
+    expect(isNavUpKey("p", { ctrl: true })).toBe(true);
+    expect(isNavDownKey("", { downArrow: true })).toBe(true);
+    expect(isNavDownKey("n", { ctrl: true })).toBe(true);
+  });
+
+  it("does not treat typed p/n or the opposite direction as navigation", () => {
+    expect(isNavUpKey("p", {})).toBe(false);
+    expect(isNavDownKey("n", {})).toBe(false);
+    expect(isNavUpKey("n", { ctrl: true })).toBe(false);
+    expect(isNavDownKey("p", { ctrl: true })).toBe(false);
+    expect(isNavUpKey("", { downArrow: true })).toBe(false);
+  });
+});
 
 describe("isClearInputKey", () => {
   it("recognizes Ctrl+C without treating a typed c as clear", () => {

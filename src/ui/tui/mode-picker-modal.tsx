@@ -2,6 +2,7 @@ import { Box, Text, useInput } from "ink";
 import { useState } from "react";
 import { MODES, type PermissionMode, modeInfo } from "../../permission/modes";
 import { useTheme } from "../theme";
+import { isNavDownKey, isNavUpKey } from "./keys";
 
 export interface ModePickerModalProps {
   /** Mode highlighted on open. */
@@ -40,8 +41,8 @@ export function ModePickerModal(props: ModePickerModalProps) {
       props.onCancel();
       return;
     }
-    if (key.upArrow) setIdx((i) => Math.max(0, i - 1));
-    else if (key.downArrow) setIdx((i) => Math.min(MODES.length - 1, i + 1));
+    if (isNavUpKey(input, key)) setIdx((i) => Math.max(0, i - 1));
+    else if (isNavDownKey(input, key)) setIdx((i) => Math.min(MODES.length - 1, i + 1));
     else if (key.return) {
       const m = MODES[idx];
       if (!m) return;
