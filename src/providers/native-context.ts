@@ -1,3 +1,4 @@
+import { fetchMetadata } from "./metadata";
 import { type ModelInfo, usableContextLength } from "./types";
 import { type VisionSupport, parseOllamaVision } from "./vision";
 
@@ -127,7 +128,7 @@ export function llamaCppReadinessWarnings(json: unknown): string[] {
 /** Fetch llama.cpp's read-only /props metadata for a specific model. Router mode uses the model
  *  query parameter; single-model servers accept the same endpoint. */
 export async function fetchLlamaCppProps(opts: NativeOpts, model: string): Promise<unknown> {
-  const res = await fetch(llamaCppPropsUrl(opts, model), { headers: authHeaders(opts) });
+  const res = await fetchMetadata(llamaCppPropsUrl(opts, model), { headers: authHeaders(opts) });
   if (!res.ok) throw new Error(`/props ${res.status}`);
   return res.json();
 }
@@ -135,7 +136,7 @@ export async function fetchLlamaCppProps(opts: NativeOpts, model: string): Promi
 /** Fetch + parse LM Studio's native model list. Throws on unreachable/non-OK so the caller
  *  can fall back to the OpenAI id-only list. */
 export async function fetchLMStudioModels(opts: NativeOpts): Promise<ModelInfo[]> {
-  const res = await fetch(`${opts.baseUrl}/api/v0/models`, { headers: authHeaders(opts) });
+  const res = await fetchMetadata(`${opts.baseUrl}/api/v0/models`, { headers: authHeaders(opts) });
   if (!res.ok) throw new Error(`/api/v0/models ${res.status}`);
   return parseLMStudioModels(await res.json());
 }
@@ -144,7 +145,7 @@ export async function fetchLMStudioModels(opts: NativeOpts): Promise<ModelInfo[]
  *  any failure (caller keeps the OpenAI id-only list). */
 export async function fetchOllamaContextLengths(opts: NativeOpts): Promise<Map<string, number>> {
   try {
-    const res = await fetch(`${opts.baseUrl}/api/ps`, { headers: authHeaders(opts) });
+    const res = await fetchMetadata(`${opts.baseUrl}/api/ps`, { headers: authHeaders(opts) });
     if (!res.ok) return new Map();
     return parseOllamaPs(await res.json());
   } catch {
@@ -174,7 +175,7 @@ export async function fetchOllamaModelContext(
   model: string,
 ): Promise<number | undefined> {
   try {
-    const res = await fetch(`${opts.baseUrl}/api/show`, {
+    const res = await fetchMetadata(`${opts.baseUrl}/api/show`, {
       method: "POST",
       headers: authHeaders(opts),
       body: JSON.stringify({ name: model }),
@@ -190,7 +191,7 @@ export async function fetchOllamaModelContext(
  *  "unknown" on any non-OK/throw so callers can fall back to a soft warning. */
 export async function fetchOllamaVision(opts: NativeOpts, model: string): Promise<VisionSupport> {
   try {
-    const res = await fetch(`${opts.baseUrl}/api/show`, {
+    const res = await fetchMetadata(`${opts.baseUrl}/api/show`, {
       method: "POST",
       headers: authHeaders(opts),
       body: JSON.stringify({ name: model }),

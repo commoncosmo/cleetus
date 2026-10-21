@@ -486,6 +486,10 @@ async function main(argv: string[]): Promise<number> {
   // flagged model that resolves skips the picker entirely; anything unresolved is
   // handled per-mode below (modal in the TUI, error/first-model in one-shot).
   const [catalog] = await Promise.all([fetchCatalog(providers), mcp.connectAll()]);
+  for (const entry of catalog) {
+    if (entry.error)
+      console.error(`[cleetus] WARNING: provider '${entry.provider}' unavailable: ${entry.error}`);
+  }
   const startup = resolveStartupChoice(catalog, {
     requestedProvider: opts.provider,
     requestedModel: opts.model,

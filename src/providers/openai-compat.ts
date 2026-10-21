@@ -2,6 +2,7 @@ import { CleetusError } from "../lib/errors";
 import { detectFamily, recoverToolCalls } from "./families";
 import { fallbackStopSequences } from "./families/registry";
 import { fallbackParams } from "./families/shape";
+import { fetchMetadata } from "./metadata";
 import { looksLikeTruncatedJson, parseToolCallEnvelope } from "./structured-output";
 import {
   type ChatOptions,
@@ -70,7 +71,7 @@ async function describeError(res: Response): Promise<string> {
 export async function listModelsOpenAI(opts: OpenAICompatOpts): Promise<ModelInfo[]> {
   let res: Response;
   try {
-    res = await fetch(path(opts, "/models"), { headers: headers(opts) });
+    res = await fetchMetadata(path(opts, "/models"), { headers: headers(opts) });
   } catch (e) {
     throw new CleetusError(
       "PROVIDER_UNREACHABLE",
