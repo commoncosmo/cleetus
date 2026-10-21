@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from "ink";
 import { useState } from "react";
 import { useTheme } from "../theme";
+import { isNavDownKey, isNavUpKey } from "./keys";
 import { type RewindCheckpoint, rewindRows } from "./rewind-row";
 import { listWindow, modalBudget } from "./stream-window";
 import { useTerminalRows } from "./use-terminal-rows";
@@ -20,13 +21,13 @@ export function RewindPickerModal(props: RewindPickerModalProps) {
   const termRows = useTerminalRows();
   const view = listWindow(rows, idx, modalBudget(termRows));
 
-  useInput((_input, key) => {
+  useInput((input, key) => {
     if (key.escape) {
       props.onCancel();
       return;
     }
-    if (key.upArrow) setIdx((i) => Math.max(0, i - 1));
-    else if (key.downArrow) setIdx((i) => Math.min(rows.length - 1, i + 1));
+    if (isNavUpKey(input, key)) setIdx((i) => Math.max(0, i - 1));
+    else if (isNavDownKey(input, key)) setIdx((i) => Math.min(rows.length - 1, i + 1));
     else if (key.return) {
       const row = rows[idx];
       if (row) props.onSelect(row.turnNumber);

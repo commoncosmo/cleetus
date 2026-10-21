@@ -17,7 +17,7 @@ import {
 } from "./editor";
 import { historyNext, historyPrev, verticalNavigationTarget } from "./history-nav";
 import { joinForPrefill } from "./input-queue";
-import { isClearInputKey, isNewlineKey } from "./keys";
+import { isClearInputKey, isNavDownKey, isNavUpKey, isNewlineKey } from "./keys";
 import { SUGGEST_PAGE, suggestWindow } from "./suggest-window";
 
 export interface Suggestion {
@@ -141,9 +141,9 @@ export function Input({
       return;
     }
 
-    // ↑/↓: recalled history keeps priority; otherwise navigate suggestions,
-    // then the cursor in a multi-line buffer, then prompt history.
-    if (key.upArrow) {
+    // ↑/↓ (or Ctrl+P/N): recalled history keeps priority; otherwise navigate
+    // suggestions, then the cursor in a multi-line buffer, then prompt history.
+    if (isNavUpKey(input, key)) {
       const target = verticalNavigationTarget({
         suggestionCount: suggestions.length,
         multiline: isMultiline(buf),
@@ -163,7 +163,7 @@ export function Input({
       setDraft(next.draft);
       return;
     }
-    if (key.downArrow) {
+    if (isNavDownKey(input, key)) {
       const target = verticalNavigationTarget({
         suggestionCount: suggestions.length,
         multiline: isMultiline(buf),
@@ -260,7 +260,7 @@ export function Input({
               {win.belowCount > 0 && <Text color={t.dim}> ↓ {win.belowCount} more</Text>}
               <Text color={t.dim}>
                 {" "}
-                tab to complete · ↑/↓ to choose · shift/opt+enter for newline
+                tab to complete · ↑/↓ or ctrl+p/n to choose · shift/opt+enter for newline
               </Text>
             </Box>
           );

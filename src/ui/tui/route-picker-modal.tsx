@@ -2,6 +2,7 @@ import { Box, Text, useInput } from "ink";
 import { useState } from "react";
 import { ROUTE_MODES, type RouteMode } from "../../agent/route-modes";
 import { useTheme } from "../theme";
+import { isNavDownKey, isNavUpKey } from "./keys";
 
 export interface RoutePickerModalProps {
   /** Mode highlighted on open. */
@@ -22,13 +23,13 @@ export function RoutePickerModal(props: RoutePickerModalProps) {
 
   const disabled = (id: RouteMode) => !props.tiersConfigured && (id === "speed" || id === "smart");
 
-  useInput((_input, key) => {
+  useInput((input, key) => {
     if (key.escape) {
       props.onCancel();
       return;
     }
-    if (key.upArrow) setIdx((i) => Math.max(0, i - 1));
-    else if (key.downArrow) setIdx((i) => Math.min(ROUTE_MODES.length - 1, i + 1));
+    if (isNavUpKey(input, key)) setIdx((i) => Math.max(0, i - 1));
+    else if (isNavDownKey(input, key)) setIdx((i) => Math.min(ROUTE_MODES.length - 1, i + 1));
     else if (key.return) {
       const m = ROUTE_MODES[idx];
       if (!m || disabled(m.id)) return;

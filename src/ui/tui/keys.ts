@@ -3,6 +3,18 @@ export interface KeyFlags {
   shift?: boolean;
   meta?: boolean;
   ctrl?: boolean;
+  upArrow?: boolean;
+  downArrow?: boolean;
+}
+
+/** ↑ or Ctrl+P (emacs/readline "previous") moves up in a list. */
+export function isNavUpKey(input: string, key: KeyFlags): boolean {
+  return key.upArrow === true || (input === "p" && key.ctrl === true);
+}
+
+/** ↓ or Ctrl+N (emacs/readline "next") moves down in a list. */
+export function isNavDownKey(input: string, key: KeyFlags): boolean {
+  return key.downArrow === true || (input === "n" && key.ctrl === true);
 }
 
 /** Ink exposes Ctrl+C as input "c" plus the ctrl flag when global exit is disabled. */
