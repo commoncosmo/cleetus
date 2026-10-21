@@ -911,6 +911,13 @@ test("budget derives from the ROUTED model's window", async () => {
   await runtime.runTurn("S", "x".repeat(8000));
   await runtime.runTurn("S", "x".repeat(8000));
 
+  expect(runtime.getContextBudget("S")).toMatchObject({
+    provider: "p",
+    model: "small-m",
+    contextLength: 8192,
+    baseTokens: 8192,
+  });
+
   const events = log.query("S");
   expect(events.some((e) => e.type === "compaction_start" || e.type === "compaction_end")).toBe(
     true,

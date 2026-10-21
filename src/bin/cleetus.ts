@@ -135,7 +135,7 @@ import { RunWorkflowTool } from "../tools/run-workflow";
 import { SaveFetchedJsonTool } from "../tools/save-fetched-json";
 import { ScaffoldTool } from "../tools/scaffold";
 import { SmokeRunTool } from "../tools/smoke-run/index";
-import { SubagentTool } from "../tools/subagent/tool";
+import { SubagentTool, subagentPermissionDetails } from "../tools/subagent/tool";
 import {
   TodoListDeleteTool,
   TodoListLoadTool,
@@ -1079,6 +1079,7 @@ async function main(argv: string[]): Promise<number> {
         req: {
           tool: string;
           argsSummary: string;
+          details?: string;
           escapes?: boolean;
           targetPath?: string;
           readEscape?: boolean;
@@ -1314,7 +1315,12 @@ async function main(argv: string[]): Promise<number> {
         : argsSummary;
       return new Promise<Decision>((respond) => {
         resolverFn!(
-          { tool, argsSummary: promptSummary, targetPath: targetPath ?? undefined },
+          {
+            tool,
+            argsSummary: promptSummary,
+            details: tool === "task" ? subagentPermissionDetails(args) : undefined,
+            targetPath: targetPath ?? undefined,
+          },
           (decision, _grantOutside) => {
             if (needsConsent && decision === "allow") {
               degradedConsent.acked = true;
@@ -1946,6 +1952,7 @@ async function main(argv: string[]): Promise<number> {
     getSessionId: () => session.id,
     getSessions: () =>
       sessions.list().map((candidate) => sessionPreview(candidate, log.query(candidate.id))),
+    getContextBudget: () => runtime.getContextBudget(session.id),
     compactSession: (instruction) => runtime.compactNow(session.id, instruction),
     getPersonality: () => personalityState.id,
     setPersonality,

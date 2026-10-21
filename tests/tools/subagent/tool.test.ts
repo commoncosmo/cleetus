@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { ToolRegistry } from "../../../src/tools/registry";
-import { SubagentTool, filterToolsForType } from "../../../src/tools/subagent/tool";
+import {
+  SubagentTool,
+  filterToolsForType,
+  subagentPermissionDetails,
+} from "../../../src/tools/subagent/tool";
 import type { Tool, ToolContext, ToolResult } from "../../../src/tools/types";
 
 const ctx: ToolContext = { projectDir: "/proj", abortSignal: new AbortController().signal };
@@ -44,6 +48,17 @@ describe("filterToolsForType", () => {
 });
 
 describe("SubagentTool", () => {
+  test("approval details retain the complete instruction without changing rule summaries", () => {
+    const description = `${"Inspect records in pages. ".repeat(30)}FINAL PAGE: 42`;
+    const args = { agent_type: "explore", description };
+    const t = new SubagentTool(async () => ({ assistantText: "" }));
+    expect(t.serialize(args)).not.toContain("FINAL PAGE");
+    const details = subagentPermissionDetails(args);
+    expect(details).toContain(description);
+    expect(details).toContain("no shell commands or file edits");
+    expect(details).toContain("MCP tools remain available");
+    expect(details).toContain("Existing permission rules apply");
+  });
   test("is mutating and serializes a labelled summary", () => {
     const t = new SubagentTool(async () => ({ assistantText: "" }));
     expect(t.name).toBe("task");

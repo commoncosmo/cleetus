@@ -20,6 +20,21 @@ function ctx(): { ctx: SlashContext; out: string[] } {
 }
 
 describe("/compact", () => {
+  test("/context is optional and reports an unsampled session without a model call", async () => {
+    expect(buildCommandRegistry(deps()).get("context")).toBeUndefined();
+    let reads = 0;
+    const reg = buildCommandRegistry({
+      ...deps(),
+      getContextBudget: () => {
+        reads++;
+        return undefined;
+      },
+    });
+    const { ctx: c, out } = ctx();
+    await reg.get("context")!.run("", c);
+    expect(reads).toBe(1);
+    expect(out[0]).toContain("No context budget sampled yet");
+  });
   test("is hidden when compactSession is absent", () => {
     expect(buildCommandRegistry(deps(undefined)).get("compact")).toBeUndefined();
   });

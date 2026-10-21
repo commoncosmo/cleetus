@@ -140,6 +140,7 @@ export async function runAcp(opts: AcpRuntimeOptions): Promise<void> {
         bundle.runtime.resetHistory(sessionId);
         bundle.runtime.snapshotSession(sessionId);
       },
+      getContextBudget: (sessionId) => bundle.runtime.getContextBudget(sessionId),
       compactSession: async (sessionId, instruction) => {
         const result = await bundle.runtime.compactNow(sessionId, instruction);
         bundle.runtime.snapshotSession(sessionId);

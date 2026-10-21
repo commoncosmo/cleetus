@@ -106,6 +106,69 @@ function makeRuntime(
 }
 
 describe("AgentRuntime context assembly", () => {
+  for (const pages of [4, 8]) {
+    it(`counts bounded MCP results for pressure and retention (${pages} pages)`, async () => {
+      const requests: ChatOptions[] = [];
+      let page = 0;
+      const mcp: Tool = {
+        name: "mcp__records__list",
+        description: "schema ".repeat(2800),
+        parameters: { type: "object", properties: {} },
+        serialize: () => "list records",
+        run: async () => ({
+          ok: true,
+          output: `HEAD-${page}\n${"Z".repeat(200000)}\nTAIL-${page}`,
+        }),
+      };
+      const provider: Provider = {
+        listModels: async () => [{ id: "m", contextLength: 131072 }],
+        embed: async () => [0],
+        async *chat(request) {
+          if (request.messages[0]?.content === DIGEST_SYSTEM_PROMPT) {
+            yield { type: "text-delta", text: "Earlier record pages inspected." };
+            yield { type: "finish", reason: "stop" };
+            return;
+          }
+          requests.push(request);
+          if (page++ < pages) {
+            yield { type: "tool-call", call: { id: `page-${page}`, name: mcp.name, args: {} } };
+            yield { type: "finish", reason: "tool-calls" };
+          } else {
+            yield { type: "text-delta", text: "Records inspected." };
+            yield { type: "finish", reason: "stop" };
+          }
+        },
+      };
+      const runtime = makeRuntime(provider, undefined, [mcp], pages + 2, {
+        modelContextLength: () => 131072,
+        systemPrompt: () => "sys ".repeat(3500),
+      });
+      await runtime.runTurn("MCP", "Inspect the record pages.");
+      const compactions = log.query("MCP").filter((e) => e.type === "compaction_start");
+      if (pages === 4) expect(compactions).toHaveLength(0);
+      else expect(compactions.length).toBeGreaterThan(0);
+      const sent = requests.at(-1)!.messages;
+      // Retention must use bounded sizes too: keep several recent pages, not just one raw body.
+      expect(sent.filter((m) => m.role === "tool").length).toBeGreaterThanOrEqual(3);
+      expect(sent.some((m) => m.content.includes(`TAIL-${pages}`))).toBe(true);
+      const raw = runtime.getMessages("MCP").filter((m) => m.role === "tool");
+      expect(raw).toHaveLength(pages);
+      expect(raw.every((m) => m.content.length > 200000)).toBe(true);
+      const budget = runtime.getContextBudget("MCP")!;
+      expect(budget).toMatchObject({
+        provider: "lm",
+        model: "m",
+        contextLength: 131072,
+        baseTokens: 32000,
+      });
+      expect(budget.assembledInputTokens).toBeLessThan(32000);
+      budget.baseTokens = 1;
+      expect(runtime.getContextBudget("MCP")!.baseTokens).toBe(32000);
+      runtime.resetHistory("MCP");
+      expect(runtime.getContextBudget("MCP")).toBeUndefined();
+    });
+  }
+
   it("fails locally before a provider call when fixed request overhead cannot fit the served window", async () => {
     const p = new CapturingProvider();
     const runtime = makeRuntime(p, undefined, undefined, 3, {

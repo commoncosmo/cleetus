@@ -100,6 +100,26 @@ function fullHarness() {
 }
 
 describe("ACP slash commands", () => {
+  it("advertises /context only when wired and reads the addressed session without a model call", async () => {
+    const sessions: string[] = [];
+    const commands = createAcpCommandHandler(buildSkillRegistry(skills, []), {
+      getContextBudget: (sessionId) => {
+        sessions.push(sessionId);
+        return undefined;
+      },
+    });
+    expect(
+      handler()
+        .availableCommands()
+        .some((c) => c.name === "context"),
+    ).toBe(false);
+    expect(commands.availableCommands().some((c) => c.name === "context")).toBe(true);
+    expect(await commands.execute("/context", { sessionId: "session-two" })).toEqual({
+      kind: "text",
+      text: "No context budget sampled yet. Send a message, then run /context.",
+    });
+    expect(sessions).toEqual(["session-two"]);
+  });
   it("advertises only the commands it can execute", () => {
     expect(handler().availableCommands()).toEqual([
       {

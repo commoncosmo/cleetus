@@ -224,6 +224,7 @@ embeddings are set).
 |---|---|
 | `/clear` | Clear conversation context (keeps the session id) |
 | `/compact` | Summarize the conversation so far to shrink the context window |
+| `/context` | Inspect the last request's served window, effective budget, reserves, and compaction thresholds |
 | `/sessions` | List project session IDs and mark the active one. Alias: `/session` |
 | `/rewind` | Undo a turn: restore files + conversation to a checkpoint |
 | `/fork` | Branch a new session from the current one (resume it with `--resume <id>`) |
@@ -506,7 +507,7 @@ orchestration:
 
 # Context-window management
 context:
-  budget_tokens: 24000        # fallback budget when the server's real window is unknown
+  budget_tokens: 24000        # unknown-window fallback; additionally clamped to 16384
   max_budget_tokens: 32000    # ceiling on the budget when the served window IS known
   response_reserve_tokens: 2048   # tokens held back for the reply (0 = no reserve)
   summarize: true             # roll trimmed-out history into a same-model digest
@@ -515,7 +516,7 @@ context:
   max_summary_input_tokens: 6000
   max_deep_tool_result_chars: 2000   # deep-slim large tool results when trimming
   max_live_tool_result_chars: 12000  # cap live-turn tool results (larger than the deep cap)
-  warn_tokens: null           # warn when the prompt exceeds N tokens (null = off)
+  warn_tokens: null           # null derives threshold: 70% of served window, or 50000 if unknown
 
 # UI / theme — see the Theme section for the full color role list
 ui:
@@ -606,6 +607,12 @@ In `smart` mode with tiers configured, the small tier is also offered a `request
 |---|---|---|
 | `skills.enabled` | `true` | `/skill` discovery and the model's skill hint. |
 | `subagents.enabled` | `true` | The `task` tool that delegates to a context-isolated sub-agent. |
+
+Terminal `task` approvals show the complete delegated instruction and agent capabilities in a
+bounded detail panel. Use Up/Down or Page Up/Page Down to inspect every page. Allowing once launches
+one subagent under the existing permission rules; project/global grants cover future task launches
+regardless of instruction. Configured MCP tools remain available to subagents, including explore
+agents, so their effects also depend on the MCP service and existing permissions.
 
 **`package_manager`** — toolchain consistency in the `bash` tool
 
@@ -742,7 +749,7 @@ recommendation and explicitly labels hybrid staging unavailable. You can still f
 
 | Key | Default | Meaning |
 |---|---|---|
-| `budget_tokens` | `24000` | Fallback budget when the server's real window is unknown. |
+| `budget_tokens` | `24000` | Fallback budget when the server's real window is unknown; clamped to `16384` and `max_budget_tokens`. |
 | `max_budget_tokens` | `32000` | Ceiling on the history budget when the served window is known (scales big-window models up from `budget_tokens` while bounding per-call latency). |
 | `response_reserve_tokens` | `2048` | Tokens reserved for the reply (`0` = none). |
 | `summarize` | `true` | Roll trimmed history into a same-model digest. |
@@ -751,7 +758,21 @@ recommendation and explicitly labels hybrid staging unavailable. You can still f
 | `max_summary_input_tokens` | `6000` | Cap on history fed to the summarizer. |
 | `max_deep_tool_result_chars` | `2000` | Deep-slim large tool results when trimming. |
 | `max_live_tool_result_chars` | `12000` | Cap for live-turn tool results (larger than the deep cap). |
-| `warn_tokens` | `null` | Warn when the prompt exceeds N tokens (`null` = off). |
+| `warn_tokens` | `null` | Warn when the prompt exceeds N tokens; `null` derives 70% of the served window, or 50000 when unknown. |
+
+The base budget is the smaller of the detected served window and `max_budget_tokens`. Cleetus
+then keeps a 10% safety margin and subtracts the response reserve, system prompt, tool schemas,
+digest, and live-request reserve. Auto-compaction compares the remaining history against the
+high-water mark using the bounded tool results actually included in the request. Original tool
+results remain in session history. A large MCP response alone does not trigger delegation or
+compaction if its bounded content fits. `/context` shows measurements from the last assembled
+request, including the routed provider/model, so it can explain the difference between a large
+server window and a smaller effective budget. It is available in both the terminal and ACP.
+
+For a model with a confirmed larger served window, raise `context.max_budget_tokens`, or set
+`model_profiles.<provider-name>.<exact-model-id>.max_budget_tokens` for just that model. The default
+ceiling remains 32000; increasing `budget_tokens` alone does not raise a known model's ceiling or
+remove the unknown-window clamp. Estimates use roughly four characters per token.
 
 **`ui`** — see Theme for the full color-role list
 

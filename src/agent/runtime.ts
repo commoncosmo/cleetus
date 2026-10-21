@@ -91,6 +91,7 @@ import {
   normalizeContextLength,
   safeAssembledInputLimit,
 } from "./context/budget";
+import type { ContextBudgetSnapshot } from "./context/diagnostics";
 import {
   DIGEST_SYSTEM_PROMPT,
   type DigestState,
@@ -878,6 +879,7 @@ export interface AgentRuntimeOptions {
  *  Freezing the boundary keeps the model-call prompt prefix byte-stable between trim events,
  *  which is what restores KV-cache reuse on the server. */
 interface TrimState {
+  lastBudget?: ContextBudgetSnapshot;
   boundaryIndex: number;
   digest: DigestState;
   warned: boolean;
@@ -1116,6 +1118,12 @@ export class AgentRuntime {
     return [...(this.historyBySession.get(sessionId) ?? [])];
   }
 
+  /** Last assembled routed pair, rather than the configured pair that may not have been called. */
+  getContextBudget(sessionId: string): ContextBudgetSnapshot | undefined {
+    const snapshot = this.trimBySession.get(sessionId)?.lastBudget;
+    return snapshot ? { ...snapshot } : undefined;
+  }
+
   private getHistory(sessionId: string): Message[] {
     let h = this.historyBySession.get(sessionId);
     if (!h) {
@@ -1200,23 +1208,43 @@ export class AgentRuntime {
     // Persisted by the trimBySession.set(...) at the end of this method; an early return
     // between here and there would silently re-fire the one-shot notice every call.
     state.lastContextLengthByModel.set(pairKey, contextLength);
-    const budget = computeBudget({
-      contextLength,
-      configBudgetTokens: cfg.budgetTokens,
-      maxBudgetTokens: cfg.maxBudgetTokens,
+    const reserves = {
       responseReserveTokens: cfg.responseReserveTokens,
       systemPromptTokens: estimateTokens(systemPrompt),
       digestTokens: estimateTokens(state.digest.text),
       toolSchemaTokens,
       liveUserMessageTokens: keptUser ? messageTokens(keptUser) : 0,
+    };
+    const budget = computeBudget({
+      contextLength,
+      configBudgetTokens: cfg.budgetTokens,
+      maxBudgetTokens: cfg.maxBudgetTokens,
+      ...reserves,
     });
+
+    // Count the same bounded tool bodies that will be sent. Raw MCP results can be huge but
+    // remain in persisted history; charging those invisible bytes caused compaction every call.
+    const liveCap = Math.max(
+      1000,
+      Math.min(cfg.maxLiveToolResultChars, Math.floor(budget * 0.4) * 4),
+    );
+    const boundedHistory = [
+      ...history.slice(0, state.boundaryIndex),
+      ...slimDeepHistory(
+        history.slice(state.boundaryIndex),
+        liveStart,
+        state.boundaryIndex,
+        cfg.maxDeepToolResultChars,
+        liveCap,
+      ),
+    ];
 
     // Defensive: a misconfigured or cross-file-merged config could leave low >= high, which
     // would make every turn trim (churn). Clamp the low-water target safely below high-water.
     const highFrac = cfg.trimHighWater;
     const lowFrac = Math.min(cfg.trimLowWater, highFrac * 0.95);
 
-    const tailTokens = sumTokens(history, state.boundaryIndex, history.length);
+    const tailTokens = sumTokens(boundedHistory, state.boundaryIndex, boundedHistory.length);
     // `budget` already excludes the system prompt, digest, response reserve, and the kept user
     // message (see computeBudget), so it is the allowance for the history tail alone. Trim
     // whenever the tail exceeds high-water. The tail now spans the live turn too, so a long
@@ -1225,15 +1253,23 @@ export class AgentRuntime {
     if (tailTokens > high) {
       const newBoundary = protectFreshestToolResult(
         history,
-        computeRecentBoundary(history, budget * lowFrac),
+        computeRecentBoundary(boundedHistory, budget * lowFrac),
       );
       if (newBoundary > state.boundaryIndex) {
-        const slice = history.slice(state.digest.coveredThroughIndex, newBoundary);
+        const slice = boundedHistory.slice(state.digest.coveredThroughIndex, newBoundary);
         if (cfg.summarize) {
           this.opts.log.append({
             sessionId,
             type: "compaction_start",
-            payload: { messageCount: slice.length, reason: "auto" },
+            payload: {
+              messageCount: slice.length,
+              reason: "auto",
+              tailTokens,
+              budgetTokens: budget,
+              highWaterTokens: high,
+              contextLength,
+              toolSchemaTokens,
+            },
           });
           const t0 = Date.now();
           const {
@@ -1287,26 +1323,12 @@ export class AgentRuntime {
     this.trimBySession.set(sessionId, state);
 
     const digestMessage = buildDigestMessage(state.digest.text);
-    // Scale the live cap to the actual tail budget so one fresh result can never exceed the
-    // whole allowance at a small window (WS1.2). tokens→chars via the same 4:1 estimate;
-    // config value remains the ceiling at large windows. Floor of 1000 chars keeps a minimal
-    // useful result even at MIN_BUDGET.
-    const liveCap = Math.max(
-      1000,
-      Math.min(cfg.maxLiveToolResultChars, Math.floor(budget * 0.4) * 4),
-    );
     // The elision guard must be conservative ACROSS routed pairs: a body elided under a
     // large pair's cap can be head/tail-cut by a later small-pair assembly, so reconcile
     // against the smallest cap this session has ever assembled with. Monotone non-increasing;
     // the cost of a stale small minimum is only a re-send (safe direction).
     state.liveCap = Math.min(liveCap, state.liveCap ?? Number.POSITIVE_INFINITY);
-    const tail = slimDeepHistory(
-      history.slice(state.boundaryIndex),
-      liveStart,
-      state.boundaryIndex,
-      cfg.maxDeepToolResultChars,
-      liveCap,
-    );
+    const tail = boundedHistory.slice(state.boundaryIndex);
     // Re-inject the originating user message verbatim when the boundary folded past it, so the
     // task itself is never summarized away. When the boundary is still at/before liveStart the
     // message is already in `tail`, so do NOT duplicate it.
@@ -1350,6 +1372,25 @@ export class AgentRuntime {
       }
     }
 
+    state.lastBudget = {
+      provider: providerName,
+      model,
+      contextLength,
+      baseTokens: budgetBase({
+        contextLength,
+        configBudgetTokens: cfg.budgetTokens,
+        maxBudgetTokens: cfg.maxBudgetTokens,
+      }),
+      maxBudgetTokens: cfg.maxBudgetTokens,
+      budgetTokens: budget,
+      tailTokens,
+      highWaterTokens: high,
+      lowWaterTokens: budget * lowFrac,
+      ...reserves,
+      assembledInputTokens: sumTokens(assembled, 0, assembled.length) + toolSchemaTokens,
+      liveToolResultChars: liveCap,
+      deepToolResultChars: cfg.maxDeepToolResultChars,
+    };
     this.maybeWarnInputSize(sessionId, state, assembled, cfg, contextLength);
     return assembled;
   }

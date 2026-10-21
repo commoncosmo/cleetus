@@ -29,7 +29,7 @@
     "smoke:editor": "bun run scripts/smoke-editor.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.31.0",
+    "@modelcontextprotocol/sdk": "1.32.0",
     "ajv": "8.20.0",
     "commander": "12.1.0",
     "ink": "5.2.1",
@@ -47,7 +47,7 @@
     "@hono/node-server": "1.19.15",
     "body-parser": "2.3.0",
     "fast-uri": "3.1.8",
-    "hono": "4.13.7",
+    "hono": "4.13.11",
     "ip-address": "10.7.1",
     "proxy-addr": "2.0.8",
     "qs": "6.16.0"

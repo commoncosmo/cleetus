@@ -1,9 +1,11 @@
-import { Box, Text, useInput } from "ink";
-import { useState } from "react";
+import { Box, Text, useInput, useStdout } from "ink";
+import { useEffect, useState } from "react";
+import stringWidth from "string-width";
 import { PATH_READING_TOOLS, type PermissionRule } from "../../permission/types";
 import { useTheme } from "../theme";
 import { type Buffer, backspace, fromText, insert, left, right } from "./editor";
 import { buildGrantRule, defaultGrantInput, readEscapeQuickGrant } from "./permission-grant";
+import { useTerminalRows } from "./use-terminal-rows";
 
 export type PermissionAction =
   | "allow_once"
@@ -20,6 +22,8 @@ export type PermissionAction =
 export interface PermissionPromptProps {
   tool: string;
   summary: string;
+  /** Complete instruction shown in a paged viewport; never used for permission-rule matching. */
+  details?: string;
   /** Resolved target path for write tools (enables the directory-broaden option). */
   targetPath?: string;
   /** Out-of-project READ prompt: [a]/[g] quick-grant a directory-scoped pathPrefix rule via
@@ -52,15 +56,64 @@ function printable(s: string): string {
   return out;
 }
 
+/** Page visual rows so long instructions and long individual lines remain fully inspectable. */
+export function permissionDetailPage(text: string, width: number, height: number, page: number) {
+  const columns = Math.max(2, Math.floor(width));
+  const rows: string[] = [];
+  const segments = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  let clean = "";
+  for (const ch of text) {
+    const code = ch.codePointAt(0)!;
+    if (ch === "\n") clean += ch;
+    else if (ch === "\t") clean += "  ";
+    else if (code >= 0x20 && (code < 0x7f || code > 0x9f)) clean += ch;
+  }
+  for (const logical of clean.split("\n")) {
+    let line = "";
+    let used = 0;
+    for (const { segment } of segments.segment(logical)) {
+      const cells = stringWidth(segment);
+      if (line && used + cells > columns) {
+        rows.push(line);
+        line = "";
+        used = 0;
+      }
+      line += segment;
+      used += cells;
+    }
+    rows.push(line);
+  }
+  const size = Math.max(1, Math.floor(height));
+  const pages = Math.max(1, Math.ceil(rows.length / size));
+  const current = Math.max(0, Math.min(pages - 1, page));
+  return { rows: rows.slice(current * size, (current + 1) * size), page: current, pages };
+}
+
 export function PermissionPrompt({
   tool,
   summary,
+  details,
   targetPath,
   readEscape,
   escapes,
   onResolve,
 }: PermissionPromptProps) {
   const t = useTheme();
+  const { stdout } = useStdout();
+  const terminalRows = useTerminalRows();
+  const detailHeight = Math.max(1, Math.min(8, terminalRows - 18));
+  const [detailPageIndex, setDetailPageIndex] = useState(0);
+  useEffect(() => {
+    if (details !== undefined) setDetailPageIndex(0);
+  }, [details]);
+  const detailPage = details
+    ? permissionDetailPage(
+        details,
+        Math.max(1, (stdout?.columns ?? 80) - 6),
+        detailHeight,
+        detailPageIndex,
+      )
+    : null;
   const broadenPrefill = defaultGrantInput(tool, summary, targetPath);
   const [step, setStep] = useState<"main" | "edit" | "scope">("main");
   const [buf, setBuf] = useState<Buffer>(() => fromText(broadenPrefill ?? ""));
@@ -88,7 +141,11 @@ export function PermissionPrompt({
 
   useInput((char, key) => {
     if (step === "main") {
-      if (char === "y") onResolve("allow_once");
+      if (detailPage && (key.upArrow || key.pageUp)) {
+        setDetailPageIndex((page) => Math.max(0, Math.min(page, detailPage.pages - 1) - 1));
+      } else if (detailPage && (key.downArrow || key.pageDown)) {
+        setDetailPageIndex((page) => Math.min(detailPage.pages - 1, page + 1));
+      } else if (char === "y") onResolve("allow_once");
       else if (char === "n") onResolve("deny");
       else if (char === "a" || char === "g") {
         if (readEscape) {
@@ -149,18 +206,34 @@ export function PermissionPrompt({
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={t.warning} paddingX={1}>
       <Text bold color={t.warning}>
-        Permission requested
+        {tool === "task" ? "Launch subagent" : "Permission requested"}
       </Text>
       <Text>
         Tool: <Text bold>{tool}</Text>
       </Text>
       <Text>{summary}</Text>
+      {step === "main" && detailPage && (
+        <>
+          <Box flexDirection="column" height={detailHeight} overflow="hidden">
+            <Text wrap="truncate">{detailPage.rows.join("\n")}</Text>
+          </Box>
+          <Text color={t.dim}>
+            Details {detailPage.page + 1}/{detailPage.pages} · [↑/↓ or PgUp/PgDn] page
+          </Text>
+        </>
+      )}
       {step === "main" && (
         <Box marginTop={1} flexDirection="column">
           <Text>
-            [<Text color={t.success}>y</Text>]es [<Text color={t.error}>n</Text>]o [
+            [<Text color={t.success}>y</Text>]{tool === "task" ? " launch once " : "es "}[
+            <Text color={t.error}>n</Text>]{tool === "task" ? " deny " : "o "}[
             <Text color={t.accent}>a</Text>]llow project [<Text color={t.accentAlt}>g</Text>]lobal
           </Text>
+          {tool === "task" && (
+            <Text color={t.dim}>
+              Project/global grants allow future task launches, regardless of instruction.
+            </Text>
+          )}
           {readEscape && broadenPrefill && (
             <Text color={t.dim}>allow persists: reads under {broadenPrefill}</Text>
           )}
