@@ -2,6 +2,7 @@ import { Box, Text, useInput } from "ink";
 import { useState } from "react";
 import { EFFORTS, type EffortLevel } from "../../agent/effort";
 import { useTheme } from "../theme";
+import { isMenuNextKey, isMenuPrevKey } from "./keys";
 
 export interface EffortPickerModalProps {
   /** Level highlighted on open. */
@@ -18,13 +19,14 @@ export function EffortPickerModal(props: EffortPickerModalProps) {
   );
   const [idx, setIdx] = useState(initialIdx);
 
-  useInput((_input, key) => {
+  useInput((input, key) => {
     if (key.escape) {
       props.onCancel();
       return;
     }
-    if (key.upArrow) setIdx((i) => Math.max(0, i - 1));
-    else if (key.downArrow) setIdx((i) => Math.min(EFFORTS.length - 1, i + 1));
+    if (key.upArrow || isMenuPrevKey(input, key)) setIdx((i) => Math.max(0, i - 1));
+    else if (key.downArrow || isMenuNextKey(input, key))
+      setIdx((i) => Math.min(EFFORTS.length - 1, i + 1));
     else if (key.return) {
       const e = EFFORTS[idx];
       if (e) props.onSelect(e.id);
@@ -33,7 +35,7 @@ export function EffortPickerModal(props: EffortPickerModalProps) {
 
   return (
     <Box flexDirection="column">
-      <Text>Select reasoning effort (↑/↓ move, enter select, esc cancel):</Text>
+      <Text>Select reasoning effort (↑/↓ or ctrl+n/ctrl+p move, enter select, esc cancel):</Text>
       {EFFORTS.map((e, i) => {
         const selected = i === idx;
         return (

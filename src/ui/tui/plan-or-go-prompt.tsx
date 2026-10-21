@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from "ink";
 import { useTheme } from "../theme";
+import { isMenuNavigationKey } from "./keys";
 
 export interface BuildPromptProps {
   /** Whether the Orchestrate option is offered for this submission. */
@@ -17,6 +18,8 @@ export interface BuildPromptProps {
 export function BuildPrompt(props: BuildPromptProps) {
   const t = useTheme();
   useInput((input, key) => {
+    // Ctrl+N/Ctrl+P are menu navigation chords; never read them as a typed p (plan).
+    if (isMenuNavigationKey(input, key)) return;
     if (props.showOrchestrate && (input === "o" || input === "O")) props.onOrchestrate();
     else if (props.orchestrationRetry && (input === "r" || input === "R")) props.onRepair();
     else if (input === "p" || input === "P") props.onPlan();

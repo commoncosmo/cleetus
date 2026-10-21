@@ -2,6 +2,7 @@ import { Box, Text, useInput } from "ink";
 import { useState } from "react";
 import { MODES, type PermissionMode, modeInfo } from "../../permission/modes";
 import { useTheme } from "../theme";
+import { isMenuNavigationKey, isMenuNextKey, isMenuPrevKey } from "./keys";
 
 export interface ModePickerModalProps {
   /** Mode highlighted on open. */
@@ -29,6 +30,8 @@ export function ModePickerModal(props: ModePickerModalProps) {
 
   useInput((input, key) => {
     if (confirming) {
+      // Ctrl+N/Ctrl+P are menu navigation chords; never read them as a typed n (cancel).
+      if (isMenuNavigationKey(input, key)) return;
       if (input === "y" || input === "Y") {
         props.onSelect(confirming);
       } else if (key.escape || input === "n" || input === "N") {
@@ -40,8 +43,9 @@ export function ModePickerModal(props: ModePickerModalProps) {
       props.onCancel();
       return;
     }
-    if (key.upArrow) setIdx((i) => Math.max(0, i - 1));
-    else if (key.downArrow) setIdx((i) => Math.min(MODES.length - 1, i + 1));
+    if (key.upArrow || isMenuPrevKey(input, key)) setIdx((i) => Math.max(0, i - 1));
+    else if (key.downArrow || isMenuNextKey(input, key))
+      setIdx((i) => Math.min(MODES.length - 1, i + 1));
     else if (key.return) {
       const m = MODES[idx];
       if (!m) return;
@@ -62,7 +66,7 @@ export function ModePickerModal(props: ModePickerModalProps) {
 
   return (
     <Box flexDirection="column">
-      <Text>Select a permission mode (↑/↓ move, enter select, esc cancel):</Text>
+      <Text>Select a permission mode (↑/↓ or ctrl+n/ctrl+p move, enter select, esc cancel):</Text>
       {MODES.map((m, i) => {
         const selected = i === idx;
         return (

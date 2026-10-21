@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from "ink";
 import { useState } from "react";
 import { useTheme } from "../theme";
+import { isMenuNextKey, isMenuPrevKey } from "./keys";
 import { type RewindCheckpoint, rewindRows } from "./rewind-row";
 import { listWindow, modalBudget } from "./stream-window";
 import { useTerminalRows } from "./use-terminal-rows";
@@ -20,13 +21,14 @@ export function RewindPickerModal(props: RewindPickerModalProps) {
   const termRows = useTerminalRows();
   const view = listWindow(rows, idx, modalBudget(termRows));
 
-  useInput((_input, key) => {
+  useInput((input, key) => {
     if (key.escape) {
       props.onCancel();
       return;
     }
-    if (key.upArrow) setIdx((i) => Math.max(0, i - 1));
-    else if (key.downArrow) setIdx((i) => Math.min(rows.length - 1, i + 1));
+    if (key.upArrow || isMenuPrevKey(input, key)) setIdx((i) => Math.max(0, i - 1));
+    else if (key.downArrow || isMenuNextKey(input, key))
+      setIdx((i) => Math.min(rows.length - 1, i + 1));
     else if (key.return) {
       const row = rows[idx];
       if (row) props.onSelect(row.turnNumber);
@@ -39,7 +41,7 @@ export function RewindPickerModal(props: RewindPickerModalProps) {
 
   return (
     <Box flexDirection="column">
-      <Text>Rewind to checkpoint (↑/↓ move, enter revert, esc cancel):</Text>
+      <Text>Rewind to checkpoint (↑/↓ or ctrl+n/ctrl+p move, enter revert, esc cancel):</Text>
       {view.above > 0 && <Text color={t.dim}>{`  ↑ ${view.above} more`}</Text>}
       {view.items.map((row, i) => {
         const selected = i === view.selected;

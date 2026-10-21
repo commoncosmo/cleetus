@@ -17,7 +17,7 @@ import {
 } from "./editor";
 import { historyNext, historyPrev, verticalNavigationTarget } from "./history-nav";
 import { joinForPrefill } from "./input-queue";
-import { isClearInputKey, isNewlineKey } from "./keys";
+import { isClearInputKey, isMenuNextKey, isMenuPrevKey, isNewlineKey } from "./keys";
 import { SUGGEST_PAGE, suggestWindow } from "./suggest-window";
 
 export interface Suggestion {
@@ -101,6 +101,15 @@ export function Input({
         setHistIdx(null);
       }
       return;
+    }
+
+    // Ctrl+N/Ctrl+P walk the suggestion list exactly like ↓/↑ (emacs/readline next/previous).
+    if (suggestions.length > 0) {
+      const step = isMenuNextKey(input, key) ? 1 : isMenuPrevKey(input, key) ? -1 : 0;
+      if (step !== 0) {
+        setSuggestIdx((i) => Math.max(0, Math.min(suggestions.length - 1, i + step)));
+        return;
+      }
     }
 
     if (key.escape) {
@@ -260,7 +269,7 @@ export function Input({
               {win.belowCount > 0 && <Text color={t.dim}> ↓ {win.belowCount} more</Text>}
               <Text color={t.dim}>
                 {" "}
-                tab to complete · ↑/↓ to choose · shift/opt+enter for newline
+                tab to complete · ↑/↓ or ctrl+n/ctrl+p to choose · shift/opt+enter for newline
               </Text>
             </Box>
           );

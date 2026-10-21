@@ -3,6 +3,7 @@ import type { TodoSnapshot } from "../../agent/todo-snapshot";
 import { renderTodoItemLines } from "../../tools/todo-core";
 import { useTheme } from "../theme";
 import { formatAge } from "./format-age";
+import { isMenuNavigationKey } from "./keys";
 
 export interface RestorePromptProps {
   snapshot: TodoSnapshot;
@@ -18,6 +19,8 @@ export function RestorePrompt(props: RestorePromptProps) {
   const done = todos.filter((x) => x.status === "completed").length;
 
   useInput((input, key) => {
+    // Ctrl+N/Ctrl+P are menu navigation chords; never read them as a typed n (dismiss).
+    if (isMenuNavigationKey(input, key)) return;
     if (key.return || input === "y" || input === "Y") {
       props.onRestore();
     } else if (key.escape || input === "n" || input === "N") {

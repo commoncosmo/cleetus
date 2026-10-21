@@ -2,6 +2,7 @@ import { Box, Text, useInput } from "ink";
 import { useState } from "react";
 import { PERSONALITIES, type PersonalityId } from "../../agent/personalities";
 import { useTheme } from "../theme";
+import { isMenuNextKey, isMenuPrevKey } from "./keys";
 
 export interface PersonalityPickerModalProps {
   /** Personality highlighted on open. */
@@ -18,13 +19,14 @@ export function PersonalityPickerModal(props: PersonalityPickerModalProps) {
   );
   const [idx, setIdx] = useState(initialIdx);
 
-  useInput((_input, key) => {
+  useInput((input, key) => {
     if (key.escape) {
       props.onCancel();
       return;
     }
-    if (key.upArrow) setIdx((i) => Math.max(0, i - 1));
-    else if (key.downArrow) setIdx((i) => Math.min(PERSONALITIES.length - 1, i + 1));
+    if (key.upArrow || isMenuPrevKey(input, key)) setIdx((i) => Math.max(0, i - 1));
+    else if (key.downArrow || isMenuNextKey(input, key))
+      setIdx((i) => Math.min(PERSONALITIES.length - 1, i + 1));
     else if (key.return) {
       const p = PERSONALITIES[idx];
       if (p) props.onSelect(p.id);
@@ -33,7 +35,7 @@ export function PersonalityPickerModal(props: PersonalityPickerModalProps) {
 
   return (
     <Box flexDirection="column">
-      <Text>Select a personality (↑/↓ move, enter select, esc cancel):</Text>
+      <Text>Select a personality (↑/↓ or ctrl+n/ctrl+p move, enter select, esc cancel):</Text>
       {PERSONALITIES.map((p, i) => {
         const selected = i === idx;
         return (

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { type Catalog, catalogEntries, fetchCatalog } from "../../providers/catalog";
 import type { ProviderRegistry } from "../../providers/registry";
 import { useTheme } from "../theme";
+import { isMenuNextKey, isMenuPrevKey } from "./keys";
 import { listWindow, modalBudget } from "./stream-window";
 import { useTerminalRows } from "./use-terminal-rows";
 
@@ -45,14 +46,15 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
   const multi = (catalog?.length ?? 0) > 1;
   const errored = catalog?.filter((c) => c.error).map((c) => c.provider) ?? [];
 
-  useInput((_char, key) => {
+  useInput((input, key) => {
     if (key.escape) {
       props.onCancel();
       return;
     }
     if (entries.length === 0) return;
-    if (key.upArrow) setIdx((i) => Math.max(0, i - 1));
-    else if (key.downArrow) setIdx((i) => Math.min(entries.length - 1, i + 1));
+    if (key.upArrow || isMenuPrevKey(input, key)) setIdx((i) => Math.max(0, i - 1));
+    else if (key.downArrow || isMenuNextKey(input, key))
+      setIdx((i) => Math.min(entries.length - 1, i + 1));
     else if (key.return) {
       const e = entries[idx];
       if (e) props.onSelect(e.provider, e.model);
@@ -76,7 +78,7 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
 
   return (
     <Box flexDirection="column">
-      <Text>Select a model (↑/↓ move, enter select, esc cancel):</Text>
+      <Text>Select a model (↑/↓ or ctrl+n/ctrl+p move, enter select, esc cancel):</Text>
       {view.above > 0 && <Text color={t.dim}> ↑ {view.above} more</Text>}
       {view.items.map((e, i) => {
         const selected = i === view.selected;

@@ -21,6 +21,29 @@ export function isToggleTestDetailsKey(input: string, key: KeyFlags): boolean {
 }
 
 /**
+ * Ctrl+N moves the highlighted option down in any menu (picker modals, the slash-command
+ * suggestion list) — the emacs/readline "next" chord, alongside the Down arrow.
+ */
+export function isMenuNextKey(input: string, key: KeyFlags): boolean {
+  return input === "n" && key.ctrl === true;
+}
+
+/** Ctrl+P moves the highlighted option up in any menu — the emacs/readline "previous" chord. */
+export function isMenuPrevKey(input: string, key: KeyFlags): boolean {
+  return input === "p" && key.ctrl === true;
+}
+
+/**
+ * True when the keypress is one of the menu navigation chords (Ctrl+N/Ctrl+P). Prompts that read a
+ * bare letter as a choice must ignore these, so a navigation chord can never be mistaken for a
+ * typed "n" (deny/cancel) or "p" (plan) — the mistake a user who just learned the chords is most
+ * likely to make. Deliberately narrow: only these two chords, so no other modified key changes.
+ */
+export function isMenuNavigationKey(input: string, key: KeyFlags): boolean {
+  return isMenuNextKey(input, key) || isMenuPrevKey(input, key);
+}
+
+/**
  * Detect a "newline, don't submit" keypress across terminal encodings, given what
  * Ink's useInput actually hands us:
  *  - Option+Enter arrives as ESC+CR, which Ink surfaces as input "\r" WITHOUT the

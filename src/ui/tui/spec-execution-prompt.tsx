@@ -1,5 +1,6 @@
 import { Box, type Key, Text, useInput } from "ink";
 import { useTheme } from "../theme";
+import { isMenuNavigationKey } from "./keys";
 
 /** The user's keypress at the accepted-spec chooser. Distinct from `SpecExecutionAction` in
  * agent/spec-handoff.ts, which is what the host does with a choice once architecture risk is
@@ -61,6 +62,8 @@ export interface SpecExecutionPromptProps extends SpecExecutionKeyOptions {
 export function SpecExecutionPrompt(props: SpecExecutionPromptProps) {
   const t = useTheme();
   useInput((input, key) => {
+    // Ctrl+N/Ctrl+P are menu navigation chords; never read them as a typed p (plan).
+    if (isMenuNavigationKey(input, key)) return;
     const choice = specExecutionKeyAction(input, key, props);
     if (choice === "plan") props.onPlan();
     else if (choice === "orchestrate") props.onOrchestrate();

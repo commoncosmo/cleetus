@@ -4,6 +4,7 @@ import stringWidth from "string-width";
 import { PATH_READING_TOOLS, type PermissionRule } from "../../permission/types";
 import { useTheme } from "../theme";
 import { type Buffer, backspace, fromText, insert, left, right } from "./editor";
+import { isMenuNavigationKey } from "./keys";
 import { buildGrantRule, defaultGrantInput, readEscapeQuickGrant } from "./permission-grant";
 import { useTerminalRows } from "./use-terminal-rows";
 
@@ -140,6 +141,8 @@ export function PermissionPrompt({
   const neverOffered = !escapes;
 
   useInput((char, key) => {
+    // Ctrl+N/Ctrl+P are menu navigation chords; never read them as a typed n (deny).
+    if (isMenuNavigationKey(char, key)) return;
     if (step === "main") {
       if (detailPage && (key.upArrow || key.pageUp)) {
         setDetailPageIndex((page) => Math.max(0, Math.min(page, detailPage.pages - 1) - 1));

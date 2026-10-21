@@ -2,6 +2,7 @@ import { Box, Text, useInput } from "ink";
 import type { WorkflowAuthorizationDecision } from "../../workflows/service";
 import type { WorkflowAuthorizationRequest } from "../cli/workflow";
 import { useTheme } from "../theme";
+import { isMenuNavigationKey } from "./keys";
 
 export interface WorkflowPermissionPromptProps {
   request: WorkflowAuthorizationRequest;
@@ -13,6 +14,8 @@ export function WorkflowPermissionPrompt({ request, onResolve }: WorkflowPermiss
   const theme = useTheme();
   const lines = request.dryRun.summary.split("\n").slice(0, 8);
   useInput((input, key) => {
+    // Ctrl+N/Ctrl+P are menu navigation chords; never read them as a typed n (deny).
+    if (isMenuNavigationKey(input, key)) return;
     if (input === "y") onResolve("allow_once");
     else if (input === "t") onResolve("trust_revision");
     else if (input === "n" || key.escape) onResolve("deny");

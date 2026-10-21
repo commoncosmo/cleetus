@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import {
   isClearInputKey,
+  isMenuNavigationKey,
+  isMenuNextKey,
+  isMenuPrevKey,
   isNewlineKey,
   isToggleReasoningKey,
   isToggleTestDetailsKey,
@@ -27,6 +30,43 @@ describe("isToggleTestDetailsKey", () => {
     expect(isToggleTestDetailsKey("e", { ctrl: true })).toBe(true);
     expect(isToggleTestDetailsKey("e", {})).toBe(false);
     expect(isToggleTestDetailsKey("E", { ctrl: true })).toBe(false);
+  });
+});
+
+describe("isMenuNextKey / isMenuPrevKey", () => {
+  it("recognizes Ctrl+N as next and Ctrl+P as previous", () => {
+    expect(isMenuNextKey("n", { ctrl: true })).toBe(true);
+    expect(isMenuPrevKey("p", { ctrl: true })).toBe(true);
+  });
+
+  it("does not treat a typed n or p as a menu chord", () => {
+    expect(isMenuNextKey("n", {})).toBe(false);
+    expect(isMenuPrevKey("p", {})).toBe(false);
+  });
+
+  it("does not cross-match next and previous", () => {
+    expect(isMenuNextKey("p", { ctrl: true })).toBe(false);
+    expect(isMenuPrevKey("n", { ctrl: true })).toBe(false);
+  });
+
+  it("ignores the uppercase forms Ink reports for shift+letter", () => {
+    expect(isMenuNextKey("N", { ctrl: true })).toBe(false);
+    expect(isMenuPrevKey("P", { ctrl: true })).toBe(false);
+  });
+});
+
+describe("isMenuNavigationKey", () => {
+  it("covers both navigation chords", () => {
+    expect(isMenuNavigationKey("n", { ctrl: true })).toBe(true);
+    expect(isMenuNavigationKey("p", { ctrl: true })).toBe(true);
+  });
+
+  it("leaves every other key alone, including plain n/p and other ctrl chords", () => {
+    expect(isMenuNavigationKey("n", {})).toBe(false);
+    expect(isMenuNavigationKey("p", {})).toBe(false);
+    expect(isMenuNavigationKey("y", { ctrl: true })).toBe(false);
+    expect(isMenuNavigationKey("c", { ctrl: true })).toBe(false);
+    expect(isMenuNavigationKey("", { return: true })).toBe(false);
   });
 });
 

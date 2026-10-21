@@ -2,6 +2,7 @@ import { Box, Text, useInput } from "ink";
 import { useState } from "react";
 import { PERSONAS, type PersonaId } from "../../agent/personas";
 import { useTheme } from "../theme";
+import { isMenuNextKey, isMenuPrevKey } from "./keys";
 
 export interface PersonaPickerModalProps {
   /** Persona highlighted on open. */
@@ -18,13 +19,14 @@ export function PersonaPickerModal(props: PersonaPickerModalProps) {
   );
   const [idx, setIdx] = useState(initialIdx);
 
-  useInput((_input, key) => {
+  useInput((input, key) => {
     if (key.escape) {
       props.onCancel();
       return;
     }
-    if (key.upArrow) setIdx((i) => Math.max(0, i - 1));
-    else if (key.downArrow) setIdx((i) => Math.min(PERSONAS.length - 1, i + 1));
+    if (key.upArrow || isMenuPrevKey(input, key)) setIdx((i) => Math.max(0, i - 1));
+    else if (key.downArrow || isMenuNextKey(input, key))
+      setIdx((i) => Math.min(PERSONAS.length - 1, i + 1));
     else if (key.return) {
       const p = PERSONAS[idx];
       if (p) props.onSelect(p.id);
@@ -33,7 +35,7 @@ export function PersonaPickerModal(props: PersonaPickerModalProps) {
 
   return (
     <Box flexDirection="column">
-      <Text>Select a persona (↑/↓ move, enter select, esc cancel):</Text>
+      <Text>Select a persona (↑/↓ or ctrl+n/ctrl+p move, enter select, esc cancel):</Text>
       {PERSONAS.map((p, i) => {
         const selected = i === idx;
         return (

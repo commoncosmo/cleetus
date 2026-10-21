@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from "ink";
 import { useTheme } from "../theme";
+import { isMenuNavigationKey } from "./keys";
 
 export interface EditorPermissionPromptProps {
   editor: string;
@@ -10,6 +11,8 @@ export interface EditorPermissionPromptProps {
 export function EditorPermissionPrompt(props: EditorPermissionPromptProps) {
   const t = useTheme();
   useInput((input, key) => {
+    // Ctrl+N/Ctrl+P are menu navigation chords; never read them as a typed n (cancel).
+    if (isMenuNavigationKey(input, key)) return;
     if (input === "y" || input === "Y" || key.return) props.onResolve(true);
     else if (input === "n" || input === "N" || key.escape) props.onResolve(false);
   });
