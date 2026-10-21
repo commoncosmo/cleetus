@@ -1,4 +1,5 @@
 import { tokenizePathArgs } from "../agent/attachments";
+import { type ContextBudgetSnapshot, formatContextBudget } from "../agent/context/diagnostics";
 import { EFFORTS, type EffortLevel, resolveEffortName } from "../agent/effort";
 import { PERSONALITIES, type PersonalityId, resolvePersonalityName } from "../agent/personalities";
 import { PERSONAS, type PersonaId, resolvePersonaName } from "../agent/personas";
@@ -123,6 +124,8 @@ export interface CommandDeps {
   getSessions?: () => SessionPreview[];
   /** Active session id, marked in `/sessions`. */
   getSessionId?: () => string;
+  /** Last assembled request measurements. Omit to hide `/context`. */
+  getContextBudget?: () => ContextBudgetSnapshot | undefined;
   /** Force-compact the active session's context now. Omit to hide `/compact`. */
   compactSession?: (instruction?: string) => Promise<{
     compacted: boolean;
@@ -907,6 +910,15 @@ export function buildCommandRegistry(deps: CommandDeps): CommandRegistry {
         }
         await deps.stageImagePaths?.(tokenizePathArgs(a));
       },
+    });
+  }
+
+  if (deps.getContextBudget) {
+    reg.register({
+      name: "context",
+      description:
+        "Show the last request's context window, budget, reserves, and compaction thresholds",
+      run: async (_args, ctx) => ctx.print(formatContextBudget(deps.getContextBudget!())),
     });
   }
 

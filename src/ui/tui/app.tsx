@@ -275,6 +275,7 @@ export type ResolveFn = (
   request: {
     tool: string;
     argsSummary: string;
+    details?: string;
     escapes?: boolean;
     targetPath?: string;
     readEscape?: boolean;
@@ -285,6 +286,7 @@ export type ResolveFn = (
 interface PendingPrompt {
   tool: string;
   argsSummary: string;
+  details?: string;
   escapes?: boolean;
   targetPath?: string;
   /** Out-of-project READ prompt: [a]/[g] quick-grant a directory-scoped pathPrefix rule
@@ -2172,6 +2174,7 @@ export function App(props: AppProps) {
         <PermissionPrompt
           tool={prompt.tool}
           summary={prompt.argsSummary}
+          details={prompt.details}
           targetPath={prompt.targetPath}
           readEscape={prompt.readEscape}
           escapes={prompt.escapes}

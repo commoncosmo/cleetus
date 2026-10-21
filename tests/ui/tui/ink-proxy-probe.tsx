@@ -13,11 +13,14 @@
 
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { Box, Static, Text, render } from "ink";
 import type { Event } from "../../../src/events/types";
+import { subagentPermissionDetails } from "../../../src/tools/subagent/tool";
 import { BEGIN_SYNC, END_SYNC, createFrameWriter } from "../../../src/ui/tui/frame-writer";
 import { History } from "../../../src/ui/tui/history";
 import { seedHistory, settlePending } from "../../../src/ui/tui/history-model";
+import { PermissionPrompt, permissionDetailPage } from "../../../src/ui/tui/permission-prompt";
 import {
   LIVE_WINDOW_RESERVE,
   liveWindowBudget,
@@ -391,7 +394,63 @@ async function testFailureDetailsStartCollapsed() {
   );
 }
 
+/** Real Ink keyboard input can reach the complete instruction while approval remains explicit. */
+async function taskApprovalPages() {
+  for (const columns of [80, 40]) {
+    const tty = fakeTty();
+    tty.columns = columns;
+    const stdin = Object.assign(new PassThrough(), {
+      isTTY: true,
+      setRawMode() {},
+      ref() {},
+      unref() {},
+    });
+    const instruction = `Read records from MCP in pages.\n${"Read the next page and collect missing owners. ".repeat(20)}\nFINAL PAGE: 42`;
+    const details = subagentPermissionDetails({ agent_type: "explore", description: instruction });
+    const actions: string[] = [];
+    const app = render(
+      <PermissionPrompt
+        tool="task"
+        summary="task(explore): Read records"
+        details={details}
+        onResolve={(action) => actions.push(String(action))}
+      />,
+      { stdout: asStdout(tty), stdin: stdin as unknown as NodeJS.ReadStream, patchConsole: false },
+    );
+    try {
+      await settle(50);
+      assert.ok(
+        tty.writes.join("").includes("Task instruction"),
+        `missing instruction at width ${columns}`,
+      );
+      assert.ok(!tty.writes.join("").includes("FINAL PAGE: 42"));
+      assert.ok(
+        tty.writes.join("").includes("Project/global grants"),
+        `missing scope at width ${columns}`,
+      );
+      const pages = permissionDetailPage(details, columns - 6, 6, 0).pages;
+      for (let page = 1; page < pages; page++) {
+        stdin.write("\u001b[6~");
+        await settle(60);
+      }
+      assert.ok(
+        tty.writes.join("").includes("FINAL PAGE: 42"),
+        "last task detail was inaccessible",
+      );
+      assert.equal(actions.length, 0, "paging must not approve a task");
+      stdin.write("y");
+      await settle(30);
+      assert.deepEqual(actions, ["allow_once"]);
+      assert.ok(!tty.writes.join("").includes("\u001b[2J"), "task details overflowed the terminal");
+    } finally {
+      app.unmount();
+      stdin.destroy();
+    }
+  }
+}
+
 try {
+  await taskApprovalPages();
   await framesAreAtomic();
   await dimensionsAndResize();
   await unsizedPtyDoesNotClear();

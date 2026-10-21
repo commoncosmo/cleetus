@@ -1,3 +1,4 @@
+import { type ContextBudgetSnapshot, formatContextBudget } from "../agent/context/diagnostics";
 import type { CheckpointSummary } from "../checkpoint/types";
 import type { LearnPlaybookController } from "../learn/service";
 import type { McpServerStatus } from "../mcp/types";
@@ -33,6 +34,7 @@ export interface AcpCommandServices {
   learnPlaybookForSession?: (sessionId: string) => LearnPlaybookController;
   buildSpecSeed?: (idea: string) => string | undefined;
   clearSession?: (sessionId: string) => Promise<void> | void;
+  getContextBudget?: (sessionId: string) => ContextBudgetSnapshot | undefined;
   compactSession?: (
     sessionId: string,
     instruction?: string,
@@ -115,6 +117,13 @@ export function createAcpCommandHandler(
         commands.push({
           name: "clear",
           description: "Clear the conversation context",
+        });
+      }
+      if (services.getContextBudget) {
+        commands.push({
+          name: "context",
+          description:
+            "Show the last request's context window, budget, reserves, and compaction thresholds",
         });
       }
       if (services.compactSession) {
@@ -263,6 +272,12 @@ export function createAcpCommandHandler(
         return { kind: "text", text: "context cleared" };
       }
 
+      if (command.name === "context" && services.getContextBudget) {
+        return {
+          kind: "text",
+          text: formatContextBudget(services.getContextBudget(context.sessionId)),
+        };
+      }
       if (command.name === "compact" && services.compactSession) {
         const result = await services.compactSession(context.sessionId, command.args || undefined);
         if (!result.compacted) {

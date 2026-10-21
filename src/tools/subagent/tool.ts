@@ -38,6 +38,26 @@ export function filterToolsForType(registry: ToolRegistry, type: SubagentType): 
 
 const MAX_LABEL = 50;
 
+/** Full launch details for consent, separate from the stable summary used by permission rules. */
+export function subagentPermissionDetails(args: unknown): string {
+  const a = (args ?? {}) as { agent_type?: unknown; description?: unknown };
+  const capabilities =
+    a.agent_type === "explore"
+      ? "Built-in tools: read and search; no shell commands or file edits."
+      : a.agent_type === "review"
+        ? "Built-in tools: read, search, and verification commands; file-edit tools excluded."
+        : "Built-in tools: general access, including commands and file edits.";
+  return [
+    `Task instruction (${String(a.agent_type ?? "unknown")} subagent):`,
+    typeof a.description === "string" && a.description.trim()
+      ? a.description
+      : "(No task instruction supplied.)",
+    "",
+    capabilities,
+    "Configured MCP tools remain available. Existing permission rules apply to its actions.",
+  ].join("\n");
+}
+
 /** Delegate a sub-task to a fresh, context-isolated sub-agent that returns a summary. */
 export class SubagentTool implements Tool {
   name = "task";
