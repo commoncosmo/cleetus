@@ -63,6 +63,8 @@ export function computeBudget(opts: {
   responseReserveTokens: number;
   systemPromptTokens: number;
   digestTokens: number;
+  /** Bounded evidence notebook re-injected separately from the rolling digest. */
+  evidenceTokens?: number;
   /** Tokens consumed by the serialized tool schemas sent with every call (0 when the
    *  call carries no tools). A required term: schemas are ~2.5-3.5K tokens and omitting
    *  them silently overflows small served windows. */
@@ -80,6 +82,7 @@ export function computeBudget(opts: {
     opts.responseReserveTokens -
     opts.systemPromptTokens -
     opts.digestTokens -
+    (opts.evidenceTokens ?? 0) -
     opts.toolSchemaTokens -
     (opts.liveUserMessageTokens ?? 0);
   return Math.max(budget, MIN_BUDGET);

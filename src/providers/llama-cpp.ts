@@ -26,8 +26,8 @@ export class LlamaCppProvider implements Provider {
     return chatOpenAI({ ...this.opts, responseFormatStyle: "llama.cpp" }, req);
   }
 
-  embed(text: string, model?: string): Promise<number[]> {
-    return embedOpenAI(this.opts, text, model);
+  embed(text: string, model?: string, options?: { signal?: AbortSignal }): Promise<number[]> {
+    return embedOpenAI(this.opts, text, model, options);
   }
 
   private propsFor(model: string): Promise<unknown | undefined> {

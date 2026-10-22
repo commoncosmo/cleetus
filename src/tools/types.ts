@@ -102,6 +102,8 @@ export interface Tool {
   name: string;
   description: string;
   parameters: object; // JSON schema
+  /** Fast local readiness hint; must not perform network requests or expose credentials. */
+  contextHint?(projectDir: string): string;
   /** True for tools that change project files or run shell commands. Blocked in plan mode. */
   mutates?: boolean;
   /** Human-readable single-line summary used in permission prompts and the UI. */

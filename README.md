@@ -235,7 +235,7 @@ embeddings are set).
 
 | Command | What it does |
 |---|---|
-| `/index [rebuild]` | Index the codebase for semantic search; `rebuild` forces a full rebuild |
+| `/index [status\|rebuild]` | Inspect index readiness, index changed files, or force a full rebuild |
 | `/memory` | List remembered facts (global + project); `/memory forget <n>` removes entry n; `/memory add <text>` adds a project memory |
 | `/mcp` | List configured MCP servers, their status, and exposed tools |
 | `/skill [name] [args]` | Run a skill playbook; `/skill edit <name>` edits and reloads a user skill |
@@ -774,6 +774,20 @@ For a model with a confirmed larger served window, raise `context.max_budget_tok
 ceiling remains 32000; increasing `budget_tokens` alone does not raise a known model's ceiling or
 remove the unknown-window clamp. Estimates use roughly four characters per token.
 
+`/context` also reports the configured ceiling and usable history as percentages of the reported
+window, plus the evidence-notebook reserve. A million-token model with a 32,000-token ceiling can
+therefore compact while using only a small fraction of its advertised capacity. Confirm the
+provider's usable server window before increasing the ceiling; architectural metadata alone may
+not describe the active server allocation. Prefer a profile for the exact provider/model pair:
+
+```yaml
+model_profiles:
+  my_provider:
+    "my-exact-model-id":
+      max_budget_tokens: 64000 # example; choose after confirming capacity and measuring latency
+```
+
+
 **`ui`** — see Theme for the full color-role list
 
 | Key | Default | Meaning |
@@ -892,12 +906,32 @@ Once `embeddings` is configured, build a semantic index of your project:
 ```
 /index            # incremental — only changed files are re-embedded
 /index rebuild    # full rebuild from scratch
+/index status     # local chunk/model status; does not contact the embedding provider
 ```
 
 The agent can then call the `code_search` tool to find relevant code by meaning (it
 points at `path:startLine-endLine`). Indexing respects `.gitignore` (via `git ls-files`)
 and skips binary/oversized files. If you change the embedding model, `/index` rebuilds
 automatically.
+
+Building the index does not automatically retrieve code for every prompt. Source investigations
+advertise the available index and ask the model to use `code_search` for conceptual discovery,
+then targeted grep and file ranges for exact symbols. Every semantic query still needs its
+configured embedding provider to embed the query. `/index status` reports stored chunks and model
+compatibility; it explicitly leaves provider health unverified. Embedding requests have a 30-second
+per-request deadline, and code search and ACP indexing honor cancellation. Failed incremental
+re-embedding preserves that file's previous vectors and manifest entry.
+
+Focused source reviews keep unrelated browser schemas out of the initial model request; reviews
+that mention browser/UI/rendering work retain them. Other configured integrations stay visible.
+The `investigation_notes` tool records a bounded snapshot of findings with evidence locations,
+ruled-out hypotheses, and remaining questions. The latest valid snapshot is retained across
+compaction and session resume, with its token cost reserved separately in `/context`.
+
+Repeated reads are compared by normalized source-line evidence, across shell command spellings
+and file-read tools. After a warning and continued repeated evidence, the agent closes inspection
+and reports supported findings and uncertainties. It does not require an edit to finish a review.
+Implementation requests keep their existing tool surface and convergence behavior.
 
 ## Sandbox
 

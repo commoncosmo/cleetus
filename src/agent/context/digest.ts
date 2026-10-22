@@ -26,7 +26,7 @@ export const DIGEST_SYSTEM_PROMPT =
   "You maintain a running digest of a coding session whose older messages are being " +
   "dropped to fit the context window. Given the existing digest and newer messages, " +
   "produce an UPDATED digest that preserves: files created/edited (with paths), key " +
-  "decisions, commands run and their outcomes, and open/unfinished tasks. Be factual " +
+  "decisions, commands run and their outcomes, and open/unfinished tasks. Preserve investigation findings, evidence locations, ruled-out hypotheses, and unanswered questions rather than only a list of commands. Be factual " +
   "and terse. This is historical context, not the active task: never present an older request " +
   "as current or instruct the agent to resume it. Output ONLY the digest, at most ~20 lines. " +
   "Do not add commentary.";

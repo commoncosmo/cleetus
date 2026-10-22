@@ -10,20 +10,21 @@ export class Embedder {
     readonly model: string,
   ) {}
 
-  async embed(text: string): Promise<Float32Array> {
-    const vec = await this.provider.embed(text, this.model);
+  async embed(text: string, signal?: AbortSignal): Promise<Float32Array> {
+    signal?.throwIfAborted();
+    const vec = await this.provider.embed(text, this.model, { signal });
     return Float32Array.from(vec);
   }
 
   /** Embed texts with bounded concurrency, preserving input order. Fail-fast. */
-  async embedBatch(texts: string[]): Promise<Float32Array[]> {
+  async embedBatch(texts: string[], signal?: AbortSignal): Promise<Float32Array[]> {
     const out: Float32Array[] = new Array(texts.length);
     for (let start = 0; start < texts.length; start += BATCH_CONCURRENCY) {
       const slice = texts.slice(start, start + BATCH_CONCURRENCY);
       const vecs = await Promise.all(
         slice.map(async (t, j) => {
           try {
-            return await this.embed(t);
+            return await this.embed(t, signal);
           } catch (e) {
             const code = e instanceof CleetusError ? e.code : "PROVIDER_INVALID_RESPONSE";
             throw new CleetusError(

@@ -601,7 +601,8 @@ export function buildCommandRegistry(deps: CommandDeps): CommandRegistry {
   if (deps.runIndex) {
     reg.register({
       name: "index",
-      description: "Index the codebase for semantic search (`rebuild` forces a full rebuild)",
+      description:
+        "Index the codebase for semantic search (`status` checks readiness; `rebuild` forces a full rebuild)",
       takesArgs: true,
       run: async (args, ctx) => {
         await deps.runIndex!(args.trim(), ctx.print);

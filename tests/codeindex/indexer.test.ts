@@ -25,6 +25,54 @@ async function repo(): Promise<string> {
 }
 
 describe("Indexer", () => {
+  it("preserves the previous index and manifest when re-embedding is cancelled", async () => {
+    const dir = await repo();
+    const manifest = new Manifest(":memory:");
+    const controller = new AbortController();
+    let cancel = false;
+    const embedding = new Embedder(
+      {
+        listModels: async () => [],
+        chat: async function* () {},
+        embed: async () => {
+          if (cancel) controller.abort();
+          return [1, 0];
+        },
+      },
+      "m1",
+    );
+    const service = new VectorService({
+      projectDbPath: ":memory:",
+      globalDbPath: ":memory:",
+      embedder: embedding,
+    });
+    try {
+      await writeFile(join(dir, "a.ts"), "const original = 1;\n");
+      await $`git add -A`.cwd(dir).quiet();
+      const indexer = new Indexer({
+        projectDir: dir,
+        vectorService: service,
+        manifest,
+        embedModel: "m1",
+      });
+      await indexer.run();
+      const prior = manifest.get("a.ts");
+      await writeFile(join(dir, "a.ts"), "const replacement = 2;\n");
+      cancel = true;
+      await expect(indexer.run({ signal: controller.signal })).rejects.toThrow();
+      expect(manifest.get("a.ts")).toEqual(prior);
+      expect(service.stats("project", "code").count).toBe(1);
+      cancel = false;
+      expect((await service.search("project", "code", "original", 1))[0]!.text).toContain(
+        "original",
+      );
+    } finally {
+      manifest.close();
+      service.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("indexes all tracked files on first run", async () => {
     const dir = await repo();
     await writeFile(join(dir, "a.ts"), "const a = 1;\n");

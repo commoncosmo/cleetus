@@ -1997,6 +1997,16 @@ async function main(argv: string[]): Promise<number> {
     getMcpStatus: () => mcp.status(),
     memory: memoryStores,
     runIndex: async (args, print) => {
+      if (args === "status") {
+        print(
+          tools.get("code_search")?.contextHint?.(projectDir) ?? "Code index status unavailable",
+        );
+        return;
+      }
+      if (args && args !== "rebuild") {
+        print("usage: /index [status|rebuild]");
+        return;
+      }
       if (!vectorService.enabled) {
         print("embeddings not configured — add an `embeddings` block to config.yaml");
         return;

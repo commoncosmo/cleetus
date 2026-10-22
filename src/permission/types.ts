@@ -29,6 +29,7 @@ export const BUILTIN_DEFAULTS: Record<string, Decision> = {
   grep: "allow",
   code_search: "allow",
   record_findings: "allow",
+  investigation_notes: "allow",
   job_start: "ask",
   job_status: "allow",
   job_cancel: "allow",

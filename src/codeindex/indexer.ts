@@ -30,12 +30,13 @@ export class Indexer {
   constructor(private readonly opts: IndexerOptions) {}
 
   async run(
-    opts: { rebuild?: boolean; onProgress?: (p: IndexProgress) => void } = {},
+    opts: { rebuild?: boolean; onProgress?: (p: IndexProgress) => void; signal?: AbortSignal } = {},
   ): Promise<IndexSummary> {
     const { projectDir, vectorService, manifest, embedModel } = this.opts;
     const startedAt = Date.now();
 
     const files = await enumerateFiles(projectDir);
+    opts.signal?.throwIfAborted();
     opts.onProgress?.({ phase: "scan", done: files.length, total: files.length });
 
     // Rebuild when explicitly requested OR the embedding model changed since last index.
@@ -54,6 +55,7 @@ export class Indexer {
     const present = new Set<string>();
 
     for (let i = 0; i < files.length; i++) {
+      opts.signal?.throwIfAborted();
       const rel = files[i]!;
       present.add(rel);
       let content: string;
@@ -69,8 +71,16 @@ export class Indexer {
         continue;
       }
       const chunks = chunkFile(rel, content);
-      if (prev) vectorService.remove("project", NAMESPACE, chunkIds(rel, prev.chunkCount));
-      await vectorService.index("project", NAMESPACE, chunks);
+      await vectorService.index("project", NAMESPACE, chunks, opts.signal);
+      // Keep the old file searchable if embedding fails or is cancelled. Upsert replaces
+      // matching chunk IDs; remove only the old trailing IDs after the new vectors land.
+      if (prev && prev.chunkCount > chunks.length) {
+        vectorService.remove(
+          "project",
+          NAMESPACE,
+          chunkIds(rel, prev.chunkCount).slice(chunks.length),
+        );
+      }
       manifest.set(rel, { hash, chunkCount: chunks.length });
       indexedFiles++;
       indexedChunks += chunks.length;
