@@ -24,7 +24,7 @@ export class LMStudioProvider implements Provider {
     return chatOpenAI(this.opts, req);
   }
 
-  embed(text: string, model?: string): Promise<number[]> {
-    return embedOpenAI(this.opts, text, model);
+  embed(text: string, model?: string, options?: { signal?: AbortSignal }): Promise<number[]> {
+    return embedOpenAI(this.opts, text, model, options);
   }
 }

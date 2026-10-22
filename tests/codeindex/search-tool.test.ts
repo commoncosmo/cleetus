@@ -21,6 +21,36 @@ const svcWith = (e: Embedder | null) =>
 const ctx = () => ({ projectDir: "/tmp", abortSignal: new AbortController().signal });
 
 describe("CodeSearchTool", () => {
+  it("reports local readiness without pretending embedding health was checked", () => {
+    const tool = new CodeSearchTool({
+      enabled: true,
+      embeddingModel: "m1",
+      stats: () => ({ count: 5181, model: "m1", dim: 768 }),
+      search: async () => {
+        throw new Error("must not probe on status");
+      },
+    });
+    expect(tool.contextHint("/tmp")).toContain("5181 chunks");
+    expect(tool.contextHint("/tmp")).toContain("unverified until a search succeeds");
+  });
+
+  it("propagates cancellation and offers a lexical fallback on embedding failure", async () => {
+    const context = ctx();
+    let signal: AbortSignal | undefined;
+    const tool = new CodeSearchTool({
+      enabled: true,
+      stats: () => ({ count: 1 }),
+      search: async (_scope, _ns, _query, _k, abortSignal) => {
+        signal = abortSignal;
+        throw new Error("embedding timeout");
+      },
+    });
+    const result = await tool.run({ query: "context compaction" }, context);
+    expect(signal).toBe(context.abortSignal);
+    expect(result.ok).toBe(false);
+    expect(result.errorMessage).toContain("targeted grep/read_file");
+  });
+
   it("reports disabled when embeddings not configured", async () => {
     const res = await new CodeSearchTool(svcWith(null)).run({ query: "x" }, ctx());
     expect(res.ok).toBe(true);

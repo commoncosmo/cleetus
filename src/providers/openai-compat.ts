@@ -354,6 +354,7 @@ export async function embedOpenAI(
   opts: OpenAICompatOpts,
   text: string,
   model?: string,
+  options?: { signal?: AbortSignal },
 ): Promise<number[]> {
   const body = { input: text, model: model ?? "text-embedding" };
   let res: Response;
@@ -362,6 +363,9 @@ export async function embedOpenAI(
       method: "POST",
       headers: headers(opts),
       body: JSON.stringify(body),
+      signal: options?.signal
+        ? AbortSignal.any([options.signal, AbortSignal.timeout(30_000)])
+        : AbortSignal.timeout(30_000),
     });
   } catch (e) {
     throw new CleetusError("PROVIDER_UNREACHABLE", `embed failed: ${(e as Error).message}`, {

@@ -95,7 +95,7 @@ export type StreamEvent =
 export interface Provider {
   listModels(): Promise<ModelInfo[]>;
   chat(opts: ChatOptions): AsyncIterable<StreamEvent>;
-  embed(text: string, model?: string): Promise<number[]>;
+  embed(text: string, model?: string, options?: { signal?: AbortSignal }): Promise<number[]>;
   /** Best-effort single-model context window from provider metadata (Ollama /api/show),
    *  used when listModels() reports no window for the active model. Undefined = unknown.
    *  Optional: providers without model metadata omit it. */

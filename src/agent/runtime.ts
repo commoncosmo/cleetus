@@ -37,6 +37,7 @@ import type {
 } from "../providers/types";
 import type { VisionSupport } from "../providers/vision";
 import type { ToolDispatcher } from "../tools/dispatcher";
+import { InvestigationNotesTool, investigationNotes } from "../tools/investigation-notes";
 import type { ToolRegistry } from "../tools/registry";
 import { renderTodoLines } from "../tools/todo-write";
 import type { TodoItem, ToolResult } from "../tools/types";
@@ -119,6 +120,12 @@ import {
   groundedSynthesisMessages,
   synthesisGroundingIssues,
 } from "./grounded-synthesis";
+import {
+  INVESTIGATION_REMINDER,
+  InvestigationGuard,
+  investigationToolSurface,
+  isCodeInvestigation,
+} from "./investigation";
 import { LoopGuard, RepeatedProbeGuard, repeatedProbeRecoveryAdvice } from "./loop-guard";
 import {
   FORCE_PLAN_SYNTHESIS_PROMPT,
@@ -1162,7 +1169,7 @@ export class AgentRuntime {
   private async assembleMessages(
     sessionId: string,
     history: Message[],
-    systemPrompt: string,
+    baseSystemPrompt: string,
     provider: Provider,
     model: string,
     providerName: string,
@@ -1170,6 +1177,20 @@ export class AgentRuntime {
     /** Estimated tokens of the tool schemas this call will carry (0 = tool-less call). */
     toolSchemaTokens = 0,
   ): Promise<Message[]> {
+    const notebook = investigationNotes(history);
+    const toolHints = this.opts.tools
+      .all()
+      .map((tool) =>
+        tool.contextHint?.(
+          typeof this.opts.projectDir === "function"
+            ? this.opts.projectDir()
+            : this.opts.projectDir,
+        ),
+      )
+      .filter(Boolean)
+      .join("\n");
+    const notebookMessage: Message | null = notebook ? { role: "user", content: notebook } : null;
+    const systemPrompt = [baseSystemPrompt, toolHints].filter(Boolean).join("\n\n");
     const configured = this.opts.context?.() ?? DEFAULT_CONTEXT;
     const profile = this.opts.modelProfile?.(model, providerName);
     const cfg = {
@@ -1212,6 +1233,7 @@ export class AgentRuntime {
       responseReserveTokens: cfg.responseReserveTokens,
       systemPromptTokens: estimateTokens(systemPrompt),
       digestTokens: estimateTokens(state.digest.text),
+      evidenceTokens: notebookMessage ? messageTokens(notebookMessage) : 0,
       toolSchemaTokens,
       liveUserMessageTokens: keptUser ? messageTokens(keptUser) : 0,
     };
@@ -1336,6 +1358,7 @@ export class AgentRuntime {
     let assembled = [
       ...(systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : []),
       ...(digestMessage ? [digestMessage] : []),
+      ...(notebookMessage ? [notebookMessage] : []),
       ...reinjected,
       ...tail,
     ];
@@ -1346,14 +1369,20 @@ export class AgentRuntime {
       sumTokens(assembled, 0, assembled.length) + toolSchemaTokens > safeInputLimit
     ) {
       const system = systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : [];
-      const fixedTokens = sumTokens(system, 0, system.length) + toolSchemaTokens;
+      const fixedTokens =
+        sumTokens(system, 0, system.length) + toolSchemaTokens + reserves.evidenceTokens;
       const recentBudget = Math.max(128, safeInputLimit - fixedTokens);
       const recentBoundary = protectFreshestToolResult(
         tail,
         computeRecentBoundary(tail, recentBudget),
       );
       const recent = tail.slice(recentBoundary).filter((message) => message !== originating);
-      assembled = [...system, ...(keptUser ? [keptUser] : []), ...recent];
+      assembled = [
+        ...system,
+        ...(notebookMessage ? [notebookMessage] : []),
+        ...(keptUser ? [keptUser] : []),
+        ...recent,
+      ];
       const fittedTokens = sumTokens(assembled, 0, assembled.length) + toolSchemaTokens;
       this.opts.log.append({
         sessionId,
@@ -2346,7 +2375,12 @@ export class AgentRuntime {
     }
     // Assemble the final content in fragment order: userInput, version-pin reminder, sticky
     // injects, todo reminder, plan-mode reminder, location grounding.
-    let turnContent = userInput;
+    const codeInvestigation = isCodeInvestigation(userInput);
+    if (codeInvestigation && !this.opts.tools.get("investigation_notes")) {
+      this.opts.tools.register(new InvestigationNotesTool());
+    }
+    const investigationGuard = codeInvestigation ? new InvestigationGuard() : null;
+    let turnContent = codeInvestigation ? `${userInput}\n\n${INVESTIGATION_REMINDER}` : userInput;
     // Plan/review prompts often quote JSON, CSV, or forecast requirements from the underlying
     // spec. They are still architecture/planning work, not standalone retrieval exports.
     const turnRetrievalKind = planNow ? null : retrievalEfficiencyKind(userInput);
@@ -2553,9 +2587,17 @@ export class AgentRuntime {
 
     try {
       // Fix F: hoist tool schemas to a single call before the loop — tools don't change during a turn
-      const taskCapabilityTools =
-        turnRetrievalKind === null ? new Set<string>() : SMALL_RETRIEVAL_TOOL_ROSTER;
-      const capabilityToolSchemas = this.buildToolSchemas(turnCapability, taskCapabilityTools);
+      const taskCapabilityTools = new Set<string>(
+        turnRetrievalKind === null ? [] : SMALL_RETRIEVAL_TOOL_ROSTER,
+      );
+      if (codeInvestigation) {
+        taskCapabilityTools.add("investigation_notes");
+        taskCapabilityTools.add("code_search");
+      }
+      const capabilityToolSchemas = investigationToolSurface(
+        this.buildToolSchemas(turnCapability, taskCapabilityTools),
+        userInput,
+      ).filter((tool) => codeInvestigation || tool.name !== "investigation_notes");
       const escalationRequestSupported = router.supportsEscalationRequest?.() ?? false;
       const modeAwareToolSchemas = escalationRequestSupported
         ? capabilityToolSchemas
@@ -2857,7 +2899,11 @@ export class AgentRuntime {
               turnCapability === "small" && this.opts.smallSystemPrompt
                 ? this.opts.smallSystemPrompt()
                 : this.opts.systemPrompt();
-            toolSchemas = this.buildToolSchemas(turnCapability, taskCapabilityTools)
+            toolSchemas = investigationToolSurface(
+              this.buildToolSchemas(turnCapability, taskCapabilityTools),
+              userInput,
+            )
+              .filter((tool) => codeInvestigation || tool.name !== "investigation_notes")
               .filter((tool) => escalationRequestSupported || tool.name !== "request_escalation")
               .filter(
                 (tool) =>
@@ -4959,6 +5005,27 @@ export class AgentRuntime {
                 text: "exact fetched JSON fidelity verified; completed deterministically without another model call",
                 level: "info",
                 kind: "artifact_deterministic_completion",
+              },
+            });
+          }
+          const investigationAction = investigationGuard?.observe(call.name, result);
+          if (investigationAction) {
+            const instruction =
+              investigationAction === "finish"
+                ? "Repeated source inspection is returning unchanged evidence. Tool access is now closed for this turn. Report the supported findings, evidence locations, uncertainties, and next focused experiment. Do not claim the investigation is exhaustive, and do not edit files just to demonstrate progress."
+                : "These inspections mostly repeat evidence already returned. Update investigation_notes with conclusions and remaining questions, then answer from the existing evidence or investigate a genuinely new hypothesis. No file edit is required.";
+            baseContent += `\n\n<system-reminder>${instruction}</system-reminder>`;
+            if (investigationAction === "finish") convergenceFinalRequested = true;
+            log.append({
+              sessionId,
+              type: "notice",
+              payload: {
+                text:
+                  investigationAction === "finish"
+                    ? "Investigation checkpoint: repeated evidence; requested findings and uncertainties."
+                    : "Investigation warning: source reads are repeating unchanged evidence.",
+                level: "warn",
+                kind: "investigation_checkpoint",
               },
             });
           }

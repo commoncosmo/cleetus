@@ -40,3 +40,16 @@ test("context report marks unknown capacity and an unsampled session explicitly"
   ).toContain("unknown (fallback clamped to 16,384)");
   expect(formatContextBudget()).toContain("No context budget sampled yet");
 });
+
+test("context report explains an apparently tiny share of a large reported window", () => {
+  const report = formatContextBudget({
+    ...snapshot,
+    contextLength: 1048576,
+    budgetTokens: 11343,
+    evidenceTokens: 200,
+  });
+  expect(report).toContain("ceiling uses 3.1%");
+  expect(report).toContain("usable history is 1.1%");
+  expect(report).toContain("evidence 200");
+  expect(report).toContain("Raising budget_tokens alone does not increase");
+});

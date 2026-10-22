@@ -25,6 +25,10 @@ export class VectorService {
     return this.embedder !== null;
   }
 
+  get embeddingModel(): string | undefined {
+    return this.embedder?.model;
+  }
+
   private store(scope: Scope): VectorStore {
     return scope === "project" ? this.project : this.global;
   }
@@ -39,16 +43,32 @@ export class VectorService {
     return this.embedder;
   }
 
-  async index(scope: Scope, namespace: string, records: VectorRecord[]): Promise<void> {
+  async index(
+    scope: Scope,
+    namespace: string,
+    records: VectorRecord[],
+    signal?: AbortSignal,
+  ): Promise<void> {
     const embedder = this.requireEmbedder();
     if (records.length === 0) return;
-    const embeddings = await embedder.embedBatch(records.map((r) => r.text));
+    const embeddings = await embedder.embedBatch(
+      records.map((r) => r.text),
+      signal,
+    );
+    signal?.throwIfAborted();
     this.store(scope).upsert(namespace, records, embeddings, embedder.model);
   }
 
-  async search(scope: Scope, namespace: string, query: string, k: number): Promise<VectorHit[]> {
+  async search(
+    scope: Scope,
+    namespace: string,
+    query: string,
+    k: number,
+    signal?: AbortSignal,
+  ): Promise<VectorHit[]> {
     const embedder = this.requireEmbedder();
-    const queryVec = await embedder.embed(query);
+    const queryVec = await embedder.embed(query, signal);
+    signal?.throwIfAborted();
     return this.store(scope).query(namespace, queryVec, k, embedder.model);
   }
 

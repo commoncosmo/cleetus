@@ -23,6 +23,7 @@ import { loadSystemPromptOverride } from "../agent/system-prompt-override";
 import { inheritedProjectMemoryPath, projectMemoryPath } from "../agent/tui-project-scope";
 import type { ResolvePermission } from "../agent/types";
 import type { CheckpointSummary } from "../checkpoint/types";
+import { CodeSearchTool } from "../codeindex/search-tool";
 import { readAppState, writeAppState } from "../config/app-state";
 import { resolveConfigRoot } from "../config/config-root";
 import { applyLaunchOverrides } from "../config/launch-overrides";
@@ -824,13 +825,14 @@ export async function buildAcpRuntime(opts: AcpRuntimeOptions): Promise<AcpRunti
     const project = getActiveProject();
     if (!project) return "index failed: no active ACP project";
     const action = args.trim().toLowerCase();
-    if (action && action !== "rebuild") return "usage: /index [rebuild]";
+    if (action === "status") return new CodeSearchTool(project.vectors).contextHint(project.cwd);
+    if (action && action !== "rebuild") return "usage: /index [status|rebuild]";
     if (!project.vectors.enabled) {
       return "embeddings not configured — add an `embeddings` block to config.yaml";
     }
     if (signal?.aborted) return "index cancelled";
     try {
-      const summary = await project.indexer.run({ rebuild: action === "rebuild" });
+      const summary = await project.indexer.run({ rebuild: action === "rebuild", signal });
       if (signal?.aborted) return "index cancelled";
       const modelNote =
         summary.rebuilt && action !== "rebuild"
