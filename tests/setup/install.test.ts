@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { installBinary, isOnPath, resignInPlace } from "../../scripts/install";
 
 test("isOnPath detects directory membership in a PATH string", () => {
-  expect(isOnPath("/home/u/.local/bin", "/usr/bin:/home/u/.local/bin")).toBe(true);
+  expect(isOnPath("/home/u/.local/bin", "/usr/bin:/home/u/.local/bin", "linux")).toBe(true);
   expect(isOnPath("/home/u/.local/bin", "/usr/bin:/bin")).toBe(false);
   expect(isOnPath("/x", undefined)).toBe(false);
 });
@@ -15,10 +15,10 @@ test("installBinary copies the binary into the target dir as executable", () => 
   const srcBinary = join(src, "cleetus");
   writeFileSync(srcBinary, "#!/bin/sh\necho hi\n");
   const target = mkdtempSync(join(tmpdir(), "cleetus-target-"));
-  const dest = installBinary(srcBinary, target);
+  const dest = installBinary(srcBinary, target, "linux");
   expect(dest).toBe(join(target, "cleetus"));
   expect(existsSync(dest)).toBe(true);
-  expect(statSync(dest).mode & 0o100).toBe(0o100); // owner-executable
+  if (process.platform !== "win32") expect(statSync(dest).mode & 0o100).toBe(0o100);
 });
 
 test("resignInPlace re-signs adhoc on macOS and returns true", () => {

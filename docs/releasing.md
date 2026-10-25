@@ -155,7 +155,9 @@ for this private repository. Keep release secrets off pull-request jobs.
    ```
 3. Watch the Actions run. On success, a Release appears with:
    `cleetus-linux-x64`, `cleetus-linux-arm64`, `cleetus-darwin-arm64`, `cleetus-darwin-x64`,
-   `checksums.txt`, and `install.sh` (the curl|bash installer, also served from `main`).
+   `cleetus-windows-x64.zip`, `cleetus-windows-arm64.zip`, `checksums.txt`, and `install.sh`
+   (the curl|bash installer, also served from `main`). Windows ZIPs include the adjacent
+   MXC executor and native notices; distribute the full ZIP rather than the bare `.exe`.
 
 For the very first run, use a prerelease tag (e.g. `v0.1.1-rc.1`) you can inspect and delete
 before cutting the real `v0.1.1`.

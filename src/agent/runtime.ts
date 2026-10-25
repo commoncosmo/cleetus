@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
+import { setTimeout as retryDelay } from "node:timers/promises";
 import { ulid } from "ulid";
 import type { CheckpointRecorder } from "../checkpoint/types";
 import { type ContextConfig, DEFAULT_CONTEXT } from "../config/context";
@@ -15,6 +16,7 @@ import type { Formatter } from "../format/types";
 import type { HookEngine } from "../hooks";
 import { playbookSuggestionText, shouldSuggestPlaybook } from "../learn/suggest";
 import { CleetusError } from "../lib/errors";
+import { projectPackageManager } from "../lib/package-manager";
 import { unexpectedCleetusProjectReference } from "../permission/cross-project";
 import { detectMalformedToolPath, extractGuardedPath } from "../permission/malformed-path";
 import { pathEscapesProject, rawToolPath, resolveReadTarget } from "../permission/path-guard";
@@ -137,6 +139,7 @@ import {
 } from "./plan-mode";
 import { SessionReadCache } from "./read-cache";
 import { blocksRecreate, pathExistsNonEmpty, recreateBlockMessage } from "./recreate-guard";
+import { RenderRecoveryGuard } from "./render-recovery";
 import {
   REPETITION_CHECK_INTERVAL,
   REPETITION_TAIL_CHARS,
@@ -408,17 +411,27 @@ export function incrementalProgressTokens(
 
 /** Identify explicit verification commands whose final result is part of task completion. Keep
  *  ordinary exploratory bash calls out: only test/build/lint/typecheck families are tracked. */
+function normalizePackageCheck(command: string): string {
+  return command
+    .replace(/^\s*(npm|pnpm|yarn)\s+test\b/i, "$1 run test")
+    .replace(/^\s*npx\s+--no-install\s+/i, "npx ");
+}
+
 export function verificationCommandKey(tool: string, args: unknown): string | null {
   const record = (args ?? {}) as Record<string, unknown>;
   if (tool === "render_check") {
-    const command = typeof record.command === "string" ? record.command.trim() : "";
-    if (command) return `render_check:suite:${command.replace(/\s+/g, " ")}`;
+    const command =
+      typeof record.command === "string" ? normalizePackageCheck(record.command).trim() : "";
+    const commandIsServer =
+      typeof record.url === "string" &&
+      /^(?:bun|npm|pnpm|yarn)\s+run\s+(?:dev|start|preview)\b/i.test(command);
+    if (command && typeof record.launchCommand !== "string" && !commandIsServer)
+      return `render_check:suite:${command.replace(/\s+/g, " ")}`;
     const norm = (value: unknown) =>
       typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
-    const launchCommand = norm(record.launchCommand).replace(
-      /(\s--port(?:=|\s+))\d+\b/gi,
-      "$1<port>",
-    );
+    const launchCommand = norm(
+      record.launchCommand ?? (commandIsServer ? command : undefined),
+    ).replace(/(\s--port(?:=|\s+))\d+\b/gi, "$1<port>");
     let url = typeof record.url === "string" ? record.url.trim() : "";
     try {
       const parsed = new URL(url);
@@ -439,7 +452,8 @@ export function verificationCommandKey(tool: string, args: unknown): string | nu
     return `render_check:launch:${launchCommand || "(missing)"}->${url || "(missing)"}::${assertion}`;
   }
   if (tool === "smoke_run") {
-    const command = typeof record.command === "string" ? record.command.trim() : "";
+    const command =
+      typeof record.command === "string" ? normalizePackageCheck(record.command).trim() : "";
     return command ? `smoke_run:${command.replace(/\s+/g, " ")}` : "smoke_run:default";
   }
   if (tool === "run_tests") {
@@ -449,15 +463,16 @@ export function verificationCommandKey(tool: string, args: unknown): string | nu
     return `run_tests:${filter || "full"}`;
   }
   if (tool !== "bash") return null;
-  const command = typeof record.command === "string" ? record.command.trim() : "";
+  const command =
+    typeof record.command === "string" ? normalizePackageCheck(record.command).trim() : "";
   if (!command) return null;
   const verification =
-    /\b(?:bun\s+test|bun\s+run\s+(?:test|lint|typecheck|build)|bunx\s+(?:tsc|vitest(?:\s+run)?|jest|playwright\s+test|cypress\s+run|mocha|ava|eslint|biome\s+check)|tsc\s+--noEmit|pytest|uv\s+run\s+pytest|cargo\s+test|go\s+test|swift\s+test|swift\s+build|xcodebuild)\b/i;
+    /\b(?:bun\s+test|(?:bun|npm|pnpm|yarn)\s+run\s+(?:test|lint|typecheck|build)|(?:bunx|npx|pnpm\s+exec|yarn\s+exec)\s+(?:tsc|vitest(?:\s+run)?|jest|playwright\s+test|cypress\s+run|mocha|ava|eslint|biome\s+check)|tsc\s+--noEmit|pytest|uv\s+run\s+pytest|cargo\s+test|go\s+test|swift\s+test|swift\s+build|xcodebuild)\b/i;
   if (!verification.test(command)) return null;
   // Track the actual quality command, not output shaping/cleanup around it. This lets a later
   // GREEN rerun clear an earlier RED even when the model changes `tail`, redirection, or spacing.
   const quality = command.match(
-    /\b(?:bun\s+test(?:\s+[^;&|\n]+)?|bun\s+run\s+(?:test|lint|typecheck|build)(?:\s+[^;&|\n]+)?|bunx\s+(?:tsc|vitest(?:\s+run)?|jest|playwright\s+test|cypress\s+run|mocha|ava|eslint|biome\s+check)(?:\s+[^;&|\n]+)?|tsc\s+--noEmit(?:\s+[^;&|\n]+)?|uv\s+run\s+pytest(?:\s+[^;&|\n]+)?|pytest(?:\s+[^;&|\n]+)?|cargo\s+test(?:\s+[^;&|\n]+)?|go\s+test(?:\s+[^;&|\n]+)?|swift\s+(?:test|build)(?:\s+[^;&|\n]+)?|xcodebuild(?:\s+[^;&|\n]+)?)/i,
+    /\b(?:bun\s+test(?:\s+[^;&|\n]+)?|(?:bun|npm|pnpm|yarn)\s+run\s+(?:test|lint|typecheck|build)(?:\s+[^;&|\n]+)?|(?:bunx|npx|pnpm\s+exec|yarn\s+exec)\s+(?:tsc|vitest(?:\s+run)?|jest|playwright\s+test|cypress\s+run|mocha|ava|eslint|biome\s+check)(?:\s+[^;&|\n]+)?|tsc\s+--noEmit(?:\s+[^;&|\n]+)?|uv\s+run\s+pytest(?:\s+[^;&|\n]+)?|pytest(?:\s+[^;&|\n]+)?|cargo\s+test(?:\s+[^;&|\n]+)?|go\s+test(?:\s+[^;&|\n]+)?|swift\s+(?:test|build)(?:\s+[^;&|\n]+)?|xcodebuild(?:\s+[^;&|\n]+)?)/i,
   )?.[0];
   const normalized = (quality ?? command)
     .replace(/\s+\d*(?:>>?|<<?)&?\d*.*$/g, "")
@@ -470,7 +485,7 @@ export function verificationCommandKey(tool: string, args: unknown): string | nu
 
 export function verificationEvidence(tool: string, args: unknown): VerificationResult["evidence"] {
   const record = (args ?? {}) as Record<string, unknown>;
-  const command = typeof record.command === "string" ? record.command : "";
+  const command = typeof record.command === "string" ? normalizePackageCheck(record.command) : "";
   if (tool === "render_check" || /\b(?:playwright\s+test|cypress\s+run)\b/i.test(command)) {
     return "render";
   }
@@ -478,7 +493,7 @@ export function verificationEvidence(tool: string, args: unknown): VerificationR
   if (tool === "run_tests" && record.check && record.check !== "test") return "quality";
   if (
     tool === "run_tests" ||
-    /\b(?:bun\s+test|bun\s+run\s+test|bunx\s+(?:vitest|jest|mocha|ava)|pytest|cargo\s+test|go\s+test|swift\s+test)\b/i.test(
+    /\b(?:bun\s+test|(?:bun|npm|pnpm|yarn)\s+run\s+test|(?:bunx|npx|pnpm\s+exec|yarn\s+exec)\s+(?:vitest|jest|mocha|ava)|pytest|cargo\s+test|go\s+test|swift\s+test)\b/i.test(
       command,
     )
   ) {
@@ -574,9 +589,9 @@ export function verificationCommandMasksExit(tool: string, args: unknown): boole
   if (tool !== "bash") return false;
   const command = (args ?? {}) as Record<string, unknown>;
   if (typeof command.command !== "string") return false;
-  const text = command.command;
+  const text = normalizePackageCheck(command.command);
   const quality =
-    /\b(?:bun\s+test|bun\s+run\s+(?:test|lint|typecheck|build)|bunx\s+(?:tsc|vitest(?:\s+run)?|jest|playwright\s+test|cypress\s+run|mocha|ava|eslint|biome\s+check)|tsc\s+--noEmit|pytest|uv\s+run\s+pytest|cargo\s+test|go\s+test|swift\s+(?:test|build)|xcodebuild)\b/i;
+    /\b(?:bun\s+test|(?:bun|npm|pnpm|yarn)\s+run\s+(?:test|lint|typecheck|build)|(?:bunx|npx|pnpm\s+exec|yarn\s+exec)\s+(?:tsc|vitest(?:\s+run)?|jest|playwright\s+test|cypress\s+run|mocha|ava|eslint|biome\s+check)|tsc\s+--noEmit|pytest|uv\s+run\s+pytest|cargo\s+test|go\s+test|swift\s+(?:test|build)|xcodebuild)\b/i;
   const start = text.search(quality);
   if (start < 0) return false;
   const tail = text.slice(start);
@@ -596,7 +611,7 @@ export function verificationReplayContext(tool: string, args: unknown): string |
   const record = (args ?? {}) as Record<string, unknown>;
   if (tool !== "bash") return JSON.stringify(record);
   if (typeof record.command !== "string") return null;
-  let command = record.command.trim();
+  let command = normalizePackageCheck(record.command).trim();
   if (/[`$\n]/.test(command)) return null;
   const cd = command.match(/^cd\s+("[^"]*"|'[^']*'|[^\s;&|]+)\s*&&\s*/);
   if (cd) command = command.slice(cd[0].length);
@@ -605,7 +620,7 @@ export function verificationReplayContext(tool: string, args: unknown): string |
   if (/[;&<>]/.test(syntax)) return null;
   const segments = syntax.split("|").map((segment) => segment.trim());
   if (
-    !/^(?:bun\s+(?:test|run\s+(?:test|lint|typecheck|build))|bunx\s+(?:tsc|vitest|jest|playwright|cypress|mocha|ava|eslint|biome)|tsc|pytest|uv\s+run\s+pytest|cargo\s+test|go\s+test|swift\s+(?:test|build)|xcodebuild)\b/i.test(
+    !/^(?:(?:bun\s+test|(?:bun|npm|pnpm|yarn)\s+run\s+(?:test|lint|typecheck|build))|(?:bunx|npx|pnpm\s+exec|yarn\s+exec)\s+(?:tsc|vitest|jest|playwright|cypress|mocha|ava|eslint|biome)|tsc|pytest|uv\s+run\s+pytest|cargo\s+test|go\s+test|swift\s+(?:test|build)|xcodebuild)\b/i.test(
       segments[0] ?? "",
     )
   )
@@ -2424,6 +2439,9 @@ export class AgentRuntime {
     if (isCodingTask(userInput)) {
       const grounding = locationGroundingReminder(await scanProject(projectDir));
       if (grounding) turnContent = `${turnContent}\n\n${grounding}`;
+      const manager = await projectPackageManager(projectDir);
+      if (manager)
+        turnContent += `\n\n<system-reminder>This project uses ${manager}. Use ${manager} consistently for dependency installation and project scripts, including launchCommand in render_check. Do not introduce a competing lockfile or switch back to Bun after an npm scaffold recovery.</system-reminder>`;
     }
     // Keep personality guidance nearest the requested response. transcriptUserInput strips this
     // internal reminder from UI/event transcript text.
@@ -2527,6 +2545,7 @@ export class AgentRuntime {
     let successfulEdits = 0;
     let failedWrites = 0;
     const verificationResults = new Map<string, VerificationResult>();
+    const renderRecovery = new RenderRecoveryGuard();
     const repeatedVerificationRequests = new Map<string, number>();
     const successfulSetupActions = new Map<string, string>();
     // Verification may be requested repeatedly by implementation/audit loops. Reuse an identical
@@ -2628,6 +2647,8 @@ export class AgentRuntime {
       let completionAuditRequested = false;
       let auditModelCalls = 0;
       let auditToolAttempts = 0;
+      let auditInspections = 0;
+      const blockedAuditWrites = new Set<string>();
       let auditRepairStarted = false;
       let auditRepairVerified = false;
       let auditLimit: string | null = null;
@@ -3002,7 +3023,18 @@ export class AgentRuntime {
                   tier: decision.tier,
                   reason: `${decision.reason} (retry-no-thinking)`,
                 });
-              } else if (isRetryableProviderError(err)) {
+              } else if (isRetryableProviderError(err) && !abortSignal.aborted) {
+                if (err instanceof CleetusError && err.code === "PROVIDER_UNREACHABLE") {
+                  log.append({
+                    sessionId,
+                    type: "notice",
+                    payload: {
+                      text: "The model connection was interrupted. Retrying the model request once; completed tool work is preserved.",
+                      level: "warn",
+                    },
+                  });
+                  await retryDelay(250, undefined, { signal: abortSignal });
+                }
                 // A retryable server failure (5xx — e.g. the model emitted an invalid tool
                 // call the server rejected) is side-effect-free: no tool ran. Resample once,
                 // nudging the model toward valid JSON when the failure looks like a bad call.
@@ -3640,6 +3672,12 @@ export class AgentRuntime {
             );
           }
           if (completionAuditRequested && !completionEvidenceWarningEmitted) {
+            if (auditLimit) {
+              const passed = [...verificationResults.values()].filter(
+                (check) => check.ok && !check.baseline,
+              );
+              finalText = `Completion audit stopped: ${auditLimit}. Remaining audit requirements are unverified.\n\nImplementation edits recorded this turn: ${[...editedFileSnapshots.keys()].join(", ") || "none"}.\n\n${auditRepairStarted ? "An audit repair was executed; only the checks below establish its verification status." : "No audit repair was executed."}${blockedAuditWrites.size ? ` Requested audit edits were blocked before execution: ${[...blockedAuditWrites].join(", ")}.` : ""}\n\nLast successful checks recorded:\n${passed.map((check) => `- ${check.command}`).join("\n") || "- None."}\n\nUnapplied audit edits and untested interactions remain outstanding.`;
+            }
             const regressions = testCoverageRegressions(editedFileSnapshots.values());
             const weakTests = testEvidenceWeaknesses(editedFileSnapshots.values());
             const unsupportedClaims = unsupportedCompletionClaims(
@@ -3867,10 +3905,30 @@ export class AgentRuntime {
             continue;
           }
           if (completionAuditRequested) {
-            auditToolAttempts++;
             const writing = ["write_file", "edit_file", "multi_edit", "apply_patch"].includes(
               call.name,
             );
+            const inspection = ["read_file", "grep", "glob", "git_status", "git_diff"].includes(
+              call.name,
+            );
+            const inspectionLimit = Math.max(1, auditLimits.toolAttempts - 4);
+            if (
+              inspection &&
+              auditLimits.toolAttempts >= 5 &&
+              (auditInspections >= inspectionLimit || auditToolAttempts >= inspectionLimit) &&
+              !auditLimit
+            ) {
+              history.push({
+                role: "tool",
+                toolCallId: call.id,
+                content:
+                  "Audit inspection budget is exhausted. Reuse the files and verification already recorded. Four tool attempts are reserved for one concrete repair and its verification; perform those now, or finalize with remaining requirements unverified.",
+              });
+              resolvedCallIds.add(call.id);
+              continue;
+            }
+            auditToolAttempts++;
+            if (inspection) auditInspections++;
             if (auditToolAttempts > auditLimits.toolAttempts || (writing && auditRepairVerified)) {
               closeAudit(
                 writing && auditRepairVerified
@@ -3879,6 +3937,10 @@ export class AgentRuntime {
               );
             }
             if (auditLimit) {
+              if (writing)
+                blockedAuditWrites.add(
+                  String((call.args as { path?: unknown })?.path ?? call.name),
+                );
               history.push({
                 role: "tool",
                 toolCallId: call.id,
@@ -3899,6 +3961,21 @@ export class AgentRuntime {
               toolCallId: call.id,
               content:
                 "error: this visibility report requires expectedControl (the affected control name or placeholder) plus expectedText (the page heading). A text-only render cannot establish control visibility.",
+            });
+            resolvedCallIds.add(call.id);
+            continue;
+          }
+          if (renderRecovery.blocks(call.name, call.args)) {
+            const blocked = renderRecovery.result();
+            history.push({ role: "tool", toolCallId: call.id, content: blocked.errorMessage! });
+            log.append({
+              sessionId,
+              type: "notice",
+              payload: {
+                kind: "render_recovery_stopped",
+                level: "warn",
+                text: blocked.errorMessage,
+              },
             });
             resolvedCallIds.add(call.id);
             continue;
@@ -4656,6 +4733,9 @@ export class AgentRuntime {
                   },
                   permission: { decision },
                 });
+          renderRecovery.observe(call.name, result);
+          if (result.verificationBlocked)
+            result.errorMessage = `${result.errorMessage}\n${renderRecovery.result().errorMessage}`;
           if (completionAuditRequested && result.ok && !cachedVerification) {
             if (result.diff && result.diff.before !== result.diff.after) auditRepairStarted = true;
             if (auditRepairStarted && verificationKey && !maskedVerification)
@@ -4895,12 +4975,12 @@ export class AgentRuntime {
           }
           log.append({ sessionId, type: "tool_call_end", payload: { call, ...result } });
           if (verificationKey) {
-            const maskedExit = maskedVerification;
+            const maskedExit = maskedVerification && !result.exitStatusPreserved;
             const previousVerification = verificationResults.get(verificationKey);
             const baseline = verificationKey.endsWith(":baseline");
             const scope =
               verificationKey === "run_tests:full" ||
-              /^bash:(?:bun test|bun run test|bunx (?:vitest(?: run)?|jest|playwright test|cypress run|mocha|ava)|pytest|uv run pytest|cargo test|go test|swift test)\s*$/i.test(
+              /^bash:(?:bun test|(?:bun|npm|pnpm|yarn) run test|(?:bunx|npx|pnpm exec|yarn exec) (?:vitest(?: run)?|jest|playwright test|cypress run|mocha|ava)|pytest|uv run pytest|cargo test|go test|swift test)\s*$/i.test(
                 verificationKey,
               )
                 ? "full"

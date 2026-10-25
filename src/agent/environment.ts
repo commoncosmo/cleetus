@@ -20,6 +20,13 @@ export function renderEnvironment(
   return [
     `Working directory: ${projectDir}`,
     `Host OS: ${describePlatform(platform)}`,
+    ...(platform === "win32"
+      ? [
+          "For native Windows execution, the shell tool retains the name bash but advertises PowerShell 7 syntax. Follow the tool's advertised shell: Docker/WSL keep Bash. MSYS/Git Bash cannot initialize inside native MXC.",
+          "PowerShell examples: list files with Get-ChildItem -Force (not ls -la); discover executables with Get-Command (not which); set variables with $env:NAME='value' (not NAME=value command); invoke an executable variable with & $exe --version. Environment changes last only for that tool call. Use the provided writable temp/cache locations, never .cleetus for scratch files. Prefer file tools over verbose formatted shell listings.",
+          "PowerShell path arguments are arrays: Get-ChildItem -LiteralPath 'src','public' and Remove-Item -LiteralPath 'one.log','two.log' -Force. Parameters use one dash (-Include). Use Invoke-WebRequest for HTTP; Get-Content reads files. /tmp and $! are Bash conventions. For a web server use render_check with launchCommand and url in one call; smoke_run stops the server afterward. Do not launch npm/npx shims with Start-Process or chase jobs across calls. Stop automatic browser/server workarounds when verification reports a fixed prerequisite failure.",
+        ]
+      : []),
     `Today's date is ${describeDate(now)}.`,
     searchGuidance,
     "Use paths relative to this working directory for every file tool — reading, writing, " +

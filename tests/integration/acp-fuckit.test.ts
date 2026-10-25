@@ -52,7 +52,12 @@ for (const scenario of [
                               name: scenario === "bash" ? "bash" : "write_file",
                               arguments: JSON.stringify(
                                 scenario === "bash"
-                                  ? { command: "printf 'ACP test' > result.txt" }
+                                  ? {
+                                      command:
+                                        process.platform === "win32"
+                                          ? "[IO.File]::WriteAllText((Join-Path (Get-Location) 'result.txt'),'ACP test')"
+                                          : "printf 'ACP test' > result.txt",
+                                    }
                                   : { path: target, content: "ACP test" },
                               ),
                             },
@@ -107,6 +112,7 @@ for (const scenario of [
     const client = new AcpTransport({
       write: (line) => {
         child.stdin.write(line);
+        void child.stdin.flush();
       },
       requestTimeoutMs: 10_000,
     });

@@ -144,12 +144,21 @@ test("rejects shell control operators in a self-contained launch command", async
   expect(executed).toBe(false);
 });
 
-test("explains how to use self-contained mode when a dev command is put in command", async () => {
+test("normalizes a dev command with URL into self-contained mode before validating assertions", async () => {
   const tool = new RenderCheckTool(fakeSandbox({}), config);
   const result = await tool.run({ command: "bun run dev", url: "http://localhost:5173" }, ctx);
   expect(result.ok).toBe(false);
-  expect(result.errorMessage).toContain("use launchCommand");
-  expect(result.errorMessage).toContain("bun run dev -- --port 5173");
+  expect(result.errorMessage).toContain("requires expectedText");
+});
+
+test("prefers an explicit launchCommand over a mistakenly supplied suite command", async () => {
+  const tool = new RenderCheckTool(fakeSandbox({}), config);
+  const result = await tool.run(
+    { command: "npx playwright test", launchCommand: "npm run dev", url: "http://localhost:5173" },
+    ctx,
+  );
+  expect(result.errorMessage).toContain("expectedText");
+  expect(result.errorMessage).not.toContain("Bun");
 });
 
 test("rejects non-browser commands without executing them", async () => {

@@ -3,6 +3,7 @@ import { copyFile, mkdir, readFile, rename, unlink, writeFile } from "node:fs/pr
 import { basename, dirname, join } from "node:path";
 import { stringify as stringifyYaml } from "yaml";
 import { parseSkillFile } from "../skills/parse";
+import { reusableChecks } from "../skills/reusable-checks";
 import type { Skill } from "../skills/types";
 import type { PlaybookDraft, PlaybookScope, SavedPlaybook } from "./types";
 
@@ -40,7 +41,7 @@ export function renderSkillFile(draft: PlaybookDraft, now: number, existing?: Sk
       learned: learnedMetadata(draft, now, existing),
     },
   }).trim();
-  return `---\n${frontmatter}\n---\n\n${draft.body.trim()}\n`;
+  return `---\n${frontmatter}\n---\n\n${reusableChecks(draft.body)}\n`;
 }
 
 function savedFromContent(

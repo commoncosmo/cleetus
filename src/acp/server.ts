@@ -48,6 +48,7 @@ export function registerInitialize(
 export async function pumpStdin(
   transport: AcpTransport,
   stream: AsyncIterable<Uint8Array>,
+  onClose?: () => void,
 ): Promise<void> {
   const decoder = new TextDecoder();
   let buf = "";
@@ -58,18 +59,22 @@ export async function pumpStdin(
     });
     inflight.add(p);
   };
-  for await (const chunk of stream) {
-    buf += decoder.decode(chunk, { stream: true });
-    let nl = buf.indexOf("\n");
-    while (nl !== -1) {
-      const line = buf.slice(0, nl);
-      buf = buf.slice(nl + 1);
-      dispatch(line);
-      nl = buf.indexOf("\n");
+  try {
+    for await (const chunk of stream) {
+      buf += decoder.decode(chunk, { stream: true });
+      let nl = buf.indexOf("\n");
+      while (nl !== -1) {
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        dispatch(line);
+        nl = buf.indexOf("\n");
+      }
     }
+    if (buf.trim() !== "") dispatch(buf);
+  } finally {
+    onClose?.();
+    await Promise.all(inflight);
   }
-  if (buf.trim() !== "") dispatch(buf);
-  await Promise.all(inflight);
 }
 
 /** ACP subcommand entry point. Builds a transport writing to stdout, registers the initialize
@@ -101,7 +106,8 @@ export async function runAcp(opts: AcpRuntimeOptions): Promise<void> {
 
   const sessions = new AcpSessions();
   const mcpStatuses = new Map<string, McpServerStatus[]>();
-  const { shutdownMcp } = registerSessionMethods(transport, {
+  const { shutdownMcp, cancelAll } = registerSessionMethods(transport, {
+    shellExecutable: opts.shellExecutable,
     runtime: bundle.runtime,
     log: bundle.log,
     vision: bundle.vision,
@@ -168,8 +174,13 @@ export async function runAcp(opts: AcpRuntimeOptions): Promise<void> {
 
   try {
     // Bun's ReadableStream is async-iterable at runtime, but the DOM lib types don't declare it.
-    await pumpStdin(transport, Bun.stdin.stream() as unknown as AsyncIterable<Uint8Array>);
+    await pumpStdin(transport, Bun.stdin.stream() as unknown as AsyncIterable<Uint8Array>, () => {
+      cancelAll();
+      transport.close();
+    });
   } finally {
+    cancelAll();
+    transport.close();
     await shutdownMcp();
     await bundle.dispose();
   }

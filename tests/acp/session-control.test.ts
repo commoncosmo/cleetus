@@ -49,11 +49,18 @@ class HangProvider implements Provider {
 
 let dir: string;
 let log: EventLog;
+const historyDatabases: ReturnType<typeof openDatabase>[] = [];
+function trackedHistory(path: string) {
+  const db = openDatabase(path);
+  historyDatabases.push(db);
+  return new SessionHistoryStore(db);
+}
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "cleetus-acpctl-"));
   log = new EventLog(join(dir, "events.db"));
 });
 afterEach(async () => {
+  for (const db of historyDatabases.splice(0)) db.close();
   log.close();
   await rm(dir, { recursive: true, force: true });
 });
@@ -96,7 +103,7 @@ function wire(runtime: AgentRuntime, historyStore?: SessionHistoryStore) {
 
 describe("session/clear", () => {
   it("resets history + snapshots, returns { ok: true }; a later session/load replays nothing", async () => {
-    const store = new SessionHistoryStore(openDatabase(join(dir, "hist.db")));
+    const store = trackedHistory(join(dir, "hist.db"));
     const runtime = makeRuntime(new TextProvider(["hi there"]), store);
     const { out, send } = wire(runtime, store);
 

@@ -19,7 +19,7 @@ export interface ControlProbeResult {
 
 // This script runs with the already-installed Bun runtime and talks directly to the system
 // browser's DevTools socket. It adds no browser library or project dependency.
-const CONTROL_PROBE_SCRIPT = String.raw`
+export const CONTROL_PROBE_SCRIPT = String.raw`
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -27,7 +27,7 @@ import { join } from "node:path";
 const [browser, url, expectedText, expectedControl, expectedAfterText = ""] = process.argv.slice(2);
 // Keep the profile under the user's cache dir, not /tmp: a strictly confined snap browser (the
 // default Chromium on recent Ubuntu/WSL) can only write a --user-data-dir within $HOME.
-let profileBase = process.env.XDG_CACHE_HOME || join(homedir(), ".cache");
+let profileBase = process.platform === "win32" ? process.env.CLEETUS_TEMP || tmpdir() : process.env.XDG_CACHE_HOME || join(homedir(), ".cache");
 try { mkdirSync(profileBase, { recursive: true }); } catch { profileBase = tmpdir(); }
 const profile = mkdtempSync(join(profileBase, "cleetus-render-"));
 const child = Bun.spawn([
@@ -165,28 +165,47 @@ try {
     });
     const occluded = blockedPoints.length > 0;
     const enabled = !(control.disabled || control.getAttribute("aria-disabled") === "true");
-    let afterTextPresent;
-    if (wantedAfter && visible && !occluded && enabled) {
-      control.click();
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      afterTextPresent = normalize(document.body?.innerText || "").includes(wantedAfter);
-    }
+    // Return the original page evidence before clicking. A full navigation destroys
+    // this execution context, including promises waiting inside Runtime.evaluate.
+    const interactionPoint = wantedAfter && visible && !occluded && enabled ? {x:centerX,y:centerY} : undefined;
     const detail = "rect=" + Math.round(rect.left) + "," + Math.round(rect.top) + " " + Math.round(rect.width) + "x" + Math.round(rect.height) + " viewport=" + innerWidth + "x" + innerHeight + (occluded ? "; blocked: " + blockedPoints.join(", ") : "");
-    return { observed: true, expectedTextPresent: normalize(bodyText).includes(wantedText), controlFound: true, controlVisible: visible, controlEnabled: enabled, controlOccluded: occluded, contrastRatio, afterTextPresent, bodyText: bodyText.slice(0, 1000), detail, styleReport };
+    return { observed: true, expectedTextPresent: normalize(bodyText).includes(wantedText), controlFound: true, controlVisible: visible, controlEnabled: enabled, controlOccluded: occluded, contrastRatio, interactionPoint, bodyText: bodyText.slice(0, 1000), detail, styleReport };
   };
   const expression = "(" + probePage.toString() + ")(" + [expectedText, expectedControl, expectedAfterText].map(JSON.stringify).join(",") + ")";
   const evaluated = await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
   const value = evaluated.result?.value;
   if (!value) throw new Error(evaluated.exceptionDetails?.text || "browser evaluation returned no value");
+  if (value.interactionPoint) {
+    const {x,y} = value.interactionPoint;
+    await send("Input.dispatchMouseEvent", {type:"mousePressed",x,y,button:"left",clickCount:1});
+    await send("Input.dispatchMouseEvent", {type:"mouseReleased",x,y,button:"left",clickCount:1});
+    value.afterTextPresent = false;
+    const deadline = Date.now() + 5000;
+    const afterExpression = "document.readyState !== 'loading' && (document.body?.innerText || '').replace(/\\s+/g,' ').trim().toLowerCase().includes(" + JSON.stringify(expectedAfterText.replace(/\s+/g,' ').trim().toLowerCase()) + ")";
+    while (Date.now() < deadline) {
+      try {
+        const after = await send("Runtime.evaluate", {expression:afterExpression,returnByValue:true});
+        if (after.result?.value === true) { value.afterTextPresent = true; break; }
+      } catch (error) {
+        if (!/context|navigat/i.test(String(error))) throw error;
+      }
+      await sleep(100);
+    }
+    delete value.interactionPoint;
+  }
   console.log("${CONTROL_PROBE_MARKER}" + JSON.stringify(value));
 } catch (error) {
   console.error("CLEETUS_CONTROL_PROBE_ERROR:" + (error instanceof Error ? error.message : String(error)));
   process.exitCode = 1;
 } finally {
   try { ws?.close(); } catch {}
+  if (process.platform === "win32") {
+    try { await Bun.spawn(['taskkill.exe', '/PID', String(child.pid), '/T', '/F'], {stdout:'ignore',stderr:'ignore'}).exited; } catch {}
+  }
   try { child.kill(); } catch {}
   try { await child.exited; } catch {}
-  rmSync(profile, { recursive: true, force: true });
+  try { rmSync(profile, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 }); }
+  catch (error) { console.error('Browser profile cleanup deferred until sandbox disposal: ' + error.message); }
 }
 `;
 

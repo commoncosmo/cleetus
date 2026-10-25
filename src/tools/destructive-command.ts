@@ -1,11 +1,12 @@
 import { basename, isAbsolute, relative, resolve } from "node:path";
+import { shellStatements } from "./shell-statements";
 
 export interface DestructiveCommandDecision {
   blocked: boolean;
   reason?: string;
 }
 
-const SHELL_BOUNDARY = String.raw`(?:^|[;&|]\s*)`;
+const SHELL_BOUNDARY = String.raw`(?:^|[;&|{]\s*)`;
 const CREATE_COMMAND =
   /(?:^|[;&|]\s*)(?:bunx\s+create-[\w@./-]+|bun\s+create\s+[\w@./-]+|(?:npm|pnpm|yarn)\s+(?:create|exec\s+create-)[\w@./-]*)\b/i;
 const CURRENT_DIR_TARGET = /(?:^|\s)(?:--\s+)?(?:\.|\.\/)(?=\s|$)/;
@@ -18,7 +19,9 @@ function normalized(command: string): string {
 }
 
 function hasRmCommand(command: string): boolean {
-  return new RegExp(`${SHELL_BOUNDARY}rm\\s+`, "i").test(command);
+  return new RegExp(`${SHELL_BOUNDARY}(?:rm|Remove-Item|ri|del|erase|rmdir|rd)\\s+`, "i").test(
+    command,
+  );
 }
 
 function targetsProtectedState(command: string, projectDir: string): boolean {
@@ -30,6 +33,16 @@ function targetsProtectedState(command: string, projectDir: string): boolean {
 }
 
 function targetsProjectRoot(command: string, projectDir: string): boolean {
+  // Windows accepts both separators; retain the supplied root too (e.g. /work
+  // denotes the current drive's root-relative path).
+  const portableCommand = command.replaceAll("\\", "/");
+  for (const root of [projectDir, resolve(projectDir)]) {
+    const escapedRoot = root.replaceAll("\\", "/").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (
+      new RegExp(String.raw`(?:^|\s|["'])${escapedRoot}\/?(?:\s|["']|$)`, "i").test(portableCommand)
+    )
+      return true;
+  }
   const resolvedProject = resolve(projectDir);
   const escapedProject = resolvedProject.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const escapedName = basename(resolvedProject).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -44,7 +57,7 @@ function targetsProjectRoot(command: string, projectDir: string): boolean {
 }
 
 function targetsProjectSpine(command: string): boolean {
-  return /(?:^|\s|["'])(?:src(?:\/(?:\*{1,2}|\{\*,\.\*\}))?\/?|package\.json|Cargo\.toml|go\.mod|pyproject\.toml|tsconfig(?:\.[\w.-]+)?\.json)(?:\s|["']|$)/i.test(
+  return /(?:^|\s|["'])(?:\.\/)?(?:src(?:\/(?:\*{1,2}|\{\*,\.\*\}))?\/?|package\.json|Cargo\.toml|go\.mod|pyproject\.toml|tsconfig(?:\.[\w.-]+)?\.json)(?:\s|["']|$)/i.test(
     command,
   );
 }
@@ -62,24 +75,33 @@ export function destructiveCommandDecision(input: {
   command: string;
   projectDir: string;
   projectAlreadyExists: boolean;
+  shell?: "bash" | "powershell";
 }): DestructiveCommandDecision {
   const command = normalized(input.command);
 
-  if (hasRmCommand(command) && targetsProtectedState(command, input.projectDir)) {
+  const removals = shellStatements(input.command, input.shell)
+    .map(normalized)
+    .map((statement) =>
+      input.shell === "powershell" ? statement.replaceAll("\\", "/") : statement,
+    )
+    .filter(hasRmCommand);
+  const projectDir =
+    input.shell === "powershell" ? input.projectDir.replaceAll("\\", "/") : input.projectDir;
+  if (removals.some((statement) => targetsProtectedState(statement, projectDir))) {
     return {
       blocked: true,
       reason: "refusing to delete Cleetus state or Git metadata from Bash",
     };
   }
 
-  if (hasRmCommand(command) && targetsProjectRoot(command, input.projectDir)) {
+  if (removals.some((statement) => targetsProjectRoot(statement, input.projectDir))) {
     return {
       blocked: true,
       reason: "refusing a recursive/broad deletion targeting the project root",
     };
   }
 
-  if (hasRmCommand(command) && targetsProjectSpine(command)) {
+  if (removals.some((statement) => targetsProjectSpine(statement))) {
     return {
       blocked: true,
       reason: "refusing to delete a project-root manifest or the entire source tree from Bash",

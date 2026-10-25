@@ -1,5 +1,6 @@
 import { $ } from "bun";
 import { assetName } from "./targets";
+import { stageWindowsRuntime } from "./stage-windows";
 
 /**
  * Build the `codesign` argv (everything after `codesign`) for the output binary.
@@ -20,10 +21,18 @@ if (import.meta.main) {
   const target = process.env.CLEETUS_TARGET; // e.g. "bun-darwin-arm64"; undefined → host
   const identity = process.env.CLEETUS_SIGN_IDENTITY ?? null; // undefined → ad-hoc
   const out =
-    process.env.CLEETUS_OUT ?? (target ? `dist/${assetName(target)}` : "dist/cleetus");
+    process.env.CLEETUS_OUT ??
+    (target?.startsWith("bun-windows-")
+      ? `dist/${assetName(target).replace(/\.zip$/, "")}/cleetus.exe`
+      : target
+        ? `dist/${assetName(target)}`
+        : "dist/cleetus");
 
   const targetArgs = target ? ["--target", target] : [];
-  await $`bun build src/bin/cleetus.ts --compile ${targetArgs} --outfile ${out}`;
+  await $`${process.execPath} build src/bin/cleetus.ts --compile ${targetArgs} --outfile ${out}`;
+  if (target?.startsWith("bun-windows-") || (!target && process.platform === "win32")) {
+    stageWindowsRuntime(out, target?.endsWith("arm64") ? "arm64" : target ? "x64" : process.arch);
+  }
 
   // macOS requires at least an ad-hoc signature for the binary to run; a real identity
   // additionally clears the path to notarization. --verify --strict hard-fails a bad

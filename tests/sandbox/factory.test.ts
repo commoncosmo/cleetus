@@ -19,6 +19,24 @@ const deps = (over: Partial<FactoryDeps> = {}): FactoryDeps => ({
 });
 
 describe("createSandbox", () => {
+  it("passes the explicit PowerShell to Windows MXC preflight", async () => {
+    const path = "C:\\Tools\\PowerShell 7\\pwsh.exe";
+    let observed: string | null | undefined;
+    const selected = await createSandboxWithInfo(
+      { backend: "host", network: true },
+      ".",
+      deps({
+        platform: "win32",
+        preflightWindows: async (sb) => {
+          observed = await sb.shellExecutable();
+          return null;
+        },
+      }),
+      { shellExecutable: path },
+    );
+    expect(observed).toBe(path);
+    await selected.sandbox.dispose();
+  });
   it("returns a NoneSandbox for the none backend", async () => {
     expect(await createSandbox({ backend: "none", network: true }, "/tmp", deps())).toBeInstanceOf(
       NoneSandbox,
@@ -75,7 +93,7 @@ describe("createSandbox", () => {
       const sb = await createSandbox(
         { backend: "host", network: true },
         "/tmp",
-        deps({ platform: "win32" }),
+        deps({ platform: "linux" }),
       );
       expect(sb).toBeInstanceOf(NoneSandbox);
       const warns = spy.mock.calls.filter((c) => String(c[0]).includes("falling back to none"));
@@ -91,7 +109,7 @@ describe("createSandboxWithInfo degradation signal", () => {
     const { sandbox, degraded, backend } = await createSandboxWithInfo(
       { backend: "host", network: true },
       "/tmp",
-      deps({ platform: "win32", hasBwrap: () => false }),
+      deps({ platform: "linux", hasBwrap: () => false }),
     );
     expect(sandbox).toBeInstanceOf(NoneSandbox);
     expect(degraded).toBe(true);

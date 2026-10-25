@@ -3,6 +3,12 @@ import { parseAcpOptions } from "../../src/acp/cli";
 
 const base = ["/bin/bun", "/path/cleetus", "acp"];
 
+test("parses an explicit shell executable without splitting spaces", () => {
+  const path = "C:\\Tools\\PowerShell 7\\pwsh.exe";
+  expect(parseAcpOptions([...base, "--shell-executable", path]).shellExecutable).toBe(path);
+  expect(parseAcpOptions(base).shellExecutable).toBeUndefined();
+});
+
 test("parses provider, model, and session-db", () => {
   const o = parseAcpOptions([
     ...base,

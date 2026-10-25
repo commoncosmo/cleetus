@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { projectPackageManager } from "../../lib/package-manager";
 
 export interface DetectedBuildCommand {
   /** "script" → the project's `build` npm script; "tsc" → a typecheck fallback. */
@@ -25,11 +26,7 @@ async function hasBuildScript(projectDir: string): Promise<boolean> {
 }
 
 async function packageManager(projectDir: string): Promise<PackageManager> {
-  if ((await exists(projectDir, "bun.lock")) || (await exists(projectDir, "bun.lockb")))
-    return "bun";
-  if (await exists(projectDir, "pnpm-lock.yaml")) return "pnpm";
-  if (await exists(projectDir, "yarn.lock")) return "yarn";
-  return "npm";
+  return (await projectPackageManager(projectDir)) ?? "npm";
 }
 
 /** One-off runner prefix for the chosen package manager (for `tsc --noEmit`). */

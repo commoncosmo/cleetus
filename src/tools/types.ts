@@ -69,6 +69,8 @@ export interface ToolResult {
     check: "test" | "build" | "typecheck" | "lint";
   };
   ok: boolean;
+  /** Trusted shell wrapper retains native failures even after logging/cleanup commands. */
+  exitStatusPreserved?: boolean;
   output?: string;
   errorCode?: CleetusErrorCode;
   errorMessage?: string;
@@ -83,6 +85,8 @@ export interface ToolResult {
   /** A verifier could not run at all (no system browser, unreachable server): the result is
    *  inconclusive, not a failure — the runtime records it as unverified rather than a failed check. */
   verificationUnavailable?: boolean;
+  /** Fixed infrastructure/prerequisite failure; stop automatic render workarounds this turn. */
+  verificationBlocked?: boolean;
   /** The verifier actually observed the running app (e.g. render_check reached and inspected the
    *  rendered DOM), so a mismatch is a real defect rather than an environment gap. */
   verificationObserved?: boolean;

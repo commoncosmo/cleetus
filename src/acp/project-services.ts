@@ -13,11 +13,11 @@ import type { DiagnosticExec } from "../diagnostics/types";
 import type { EventLog } from "../events/log";
 import { buildFormatter } from "../format/manager";
 import type { Formatter } from "../format/types";
-import { shellJoin } from "../git/quote";
 import { buildHookEngine } from "../hooks";
 import type { HookEngine } from "../hooks/types";
 import type { ProviderRegistry } from "../providers/registry";
 import { buildRepoMap } from "../repomap/build";
+import { execProgram } from "../sandbox/program";
 import type { Sandbox } from "../sandbox/types";
 import { Embedder } from "../vector/embedder";
 import { VectorService } from "../vector/service";
@@ -101,7 +101,7 @@ export class AcpProjectServiceRegistry {
       ? await buildRepoMap({ projectDir: cwd, tokenBudget: config.repoMap.tokenBudget })
       : "";
     const exec: DiagnosticExec = (argv, opts) =>
-      this.deps.sandbox.exec(shellJoin(argv), {
+      execProgram(this.deps.sandbox, argv, {
         cwd: opts.cwd,
         timeoutMs: opts.timeoutMs,
         signal: opts.signal,
@@ -120,7 +120,7 @@ export class AcpProjectServiceRegistry {
         fileExists: (path) => Bun.file(path).exists(),
         readFile: (path) => Bun.file(path).text(),
         spawn: async (argv, opts) => {
-          const result = await this.deps.sandbox.exec(shellJoin(argv), {
+          const result = await execProgram(this.deps.sandbox, argv, {
             cwd: opts.cwd,
             timeoutMs: 15_000,
             signal: opts.signal,

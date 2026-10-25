@@ -1,5 +1,5 @@
 import { realpath } from "node:fs/promises";
-import { dirname, isAbsolute, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { patchTargetPath } from "../tools/apply-patch/parse";
 import { PATH_WRITING_TOOLS } from "./types";
 
@@ -19,14 +19,14 @@ export async function realpathWithMissingParents(dir: string): Promise<string> {
       const real = await realpath(current);
       // Re-attach the missing suffix (in original order).
       if (missing.length === 0) return real;
-      return [real, ...missing].join(sep);
+      return join(real, ...missing);
     } catch {
       const parent = dirname(current);
       if (parent === current) {
         // Reached filesystem root and nothing resolved — return as-is.
-        return [current, ...missing].join(sep);
+        return join(current, ...missing);
       }
-      missing.unshift(current.slice(parent === sep ? sep.length : parent.length + sep.length));
+      missing.unshift(basename(current));
       current = parent;
     }
   }

@@ -112,6 +112,7 @@ import { spawnCollect } from "../sandbox/spawn";
 import { privateDirectory, privateFile } from "../security/private-state";
 import { isSecretPath } from "../security/secret-paths";
 import { firstRunSetup } from "../setup/first-run";
+import { windowsFirstRunPrerequisites } from "../setup/windows-environment";
 import { bootstrapSkills } from "../skills/bootstrap";
 import { composeSkillBody, renderSkillReminder, stripSystemReminders } from "../skills/compose";
 import { orchestrationSkillDeps } from "../skills/orchestration";
@@ -213,6 +214,17 @@ interface ProgramOptions {
 }
 
 async function main(argv: string[]): Promise<number> {
+  if (argv[2] === "doctor") {
+    const { runDoctor } = await import("../ui/cli/doctor");
+    return runDoctor(argv, process.cwd(), {
+      write: (s) => {
+        process.stdout.write(s);
+      },
+      writeErr: (s) => {
+        process.stderr.write(s);
+      },
+    });
+  }
   if (argv[2] === "trust") {
     const { runTrust } = await import("../ui/cli/trust");
     return runTrust(argv, process.cwd());
@@ -377,6 +389,12 @@ async function main(argv: string[]): Promise<number> {
 
   // First run (no provider configured): auto-detect a local server and continue, or scaffold and exit.
   if (Object.keys(config.providers).length === 0) {
+    if (
+      !(await windowsFirstRunPrerequisites(projectDir, config.sandbox.backend, (s) => {
+        process.stderr.write(s);
+      }))
+    )
+      return 1;
     const fr = await firstRunSetup(config, GLOBAL_DIR);
     console.error(`[cleetus] ${fr.message}`);
     if (fr.action === "exit") return 0;

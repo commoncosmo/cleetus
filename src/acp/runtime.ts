@@ -1,6 +1,6 @@
-import { mkdirSync, realpathSync } from "node:fs";
+import { mkdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { maybeGcOnStartup } from "../agent/attachment-gc";
 import { resolveStartEffort } from "../agent/effort";
 import { renderEnvironment } from "../agent/environment";
@@ -54,8 +54,13 @@ import { ProviderRegistry } from "../providers/registry";
 import { resolveStartupChoice } from "../providers/startup";
 import { truncateMapToBudget } from "../repomap/render";
 import { createSandboxWithInfo } from "../sandbox/factory";
+import { execProgram } from "../sandbox/program";
 import type { Sandbox } from "../sandbox/types";
 import { privateDirectory, privateFile } from "../security/private-state";
+import {
+  checkWindowsPrerequisites,
+  windowsFirstRunPrerequisites,
+} from "../setup/windows-environment";
 import { bootstrapSkills } from "../skills/bootstrap";
 import { composeSkillBody, renderSkillReminder, stripSystemReminders } from "../skills/compose";
 import type { SkillRegistry } from "../skills/registry";
@@ -80,6 +85,7 @@ import {
 } from "./project-services";
 import { buildAcpPromptScope } from "./prompt-scope";
 import { buildAcpRouter } from "./router";
+import { AcpSandboxRegistry } from "./sandbox-registry";
 import {
   type AcpSessionConfigController,
   type ActiveAcpSessionHolder,
@@ -89,6 +95,7 @@ import { registerAcpTools } from "./toolset";
 import type { WorkflowAuthorizationRouter } from "./workflow-permission";
 
 export interface AcpRuntimeOptions {
+  shellExecutable?: string;
   provider?: string;
   model?: string;
   /** `--route` flag; falls back to config `routing.default_mode`. */
@@ -238,7 +245,22 @@ export interface AcpRuntimeBundle {
  *  file/terminal operations to ACP client capabilities. Repo maps, diagnostics, formatting, hooks,
  *  and checkpoints are selected by canonical session cwd. Build gates and orchestration remain
  *  deliberately deferred and are tracked in the project todo list. */
-export async function buildAcpRuntime(opts: AcpRuntimeOptions): Promise<AcpRuntimeBundle> {
+export async function buildAcpRuntime(options: AcpRuntimeOptions): Promise<AcpRuntimeBundle> {
+  const opts = { ...options };
+  if (opts.shellExecutable !== undefined) {
+    if (process.platform !== "win32")
+      throw new Error("--shell-executable currently supports Windows PowerShell only");
+    if (!isAbsolute(opts.shellExecutable))
+      throw new Error("--shell-executable requires an absolute path to pwsh.exe");
+    try {
+      if (!statSync(opts.shellExecutable).isFile()) throw new Error("not a file");
+      opts.shellExecutable = realpathSync(opts.shellExecutable);
+    } catch {
+      throw new Error(
+        `--shell-executable is not an accessible executable file: ${opts.shellExecutable}`,
+      );
+    }
+  }
   if (opts.fuckit) {
     console.error("[cleetus acp] WARNING: ordinary tool permission prompts disabled (--fuckit)");
   }
@@ -287,8 +309,30 @@ export async function buildAcpRuntime(opts: AcpRuntimeOptions): Promise<AcpRunti
     routeLargeModel: opts.routeLargeModel,
   });
   for (const w of overrideWarnings) console.error(`[cleetus acp] WARNING: ${w}`);
+  if (opts.shellExecutable && config.sandbox.backend === "docker") {
+    throw new Error(
+      "--shell-executable selects a local Windows PowerShell; it cannot be used with the Docker backend",
+    );
+  }
 
   if (Object.keys(config.providers).length === 0) {
+    if (
+      !(await windowsFirstRunPrerequisites(
+        projectDir,
+        config.sandbox.backend,
+        (s) => {
+          process.stderr.write(s);
+        },
+        process.platform,
+        (cwd, backend) =>
+          checkWindowsPrerequisites(cwd, backend, {
+            which: (name) =>
+              name === "pwsh.exe" && opts.shellExecutable ? opts.shellExecutable : Bun.which(name),
+          }),
+      ))
+    ) {
+      throw new Error("Windows prerequisites are unavailable; run cleetus doctor --windows.");
+    }
     throw new Error(
       `no providers configured. add an lmstudio, ollama, llama.cpp, omlx, or vllm provider to ${GLOBAL_CONFIG}`,
     );
@@ -344,7 +388,22 @@ export async function buildAcpRuntime(opts: AcpRuntimeOptions): Promise<AcpRunti
   const { sandbox: realSandbox, degraded: sandboxDegraded } = await createSandboxWithInfo(
     config.sandbox,
     projectDir,
+    undefined,
+    { shellExecutable: opts.shellExecutable },
   );
+  const projectSandboxes = new AcpSandboxRegistry(async (cwd) => {
+    const selection = await createSandboxWithInfo(config.sandbox, cwd, undefined, {
+      shellExecutable: opts.shellExecutable,
+    });
+    if (selection.degraded !== sandboxDegraded) {
+      await selection.sandbox.dispose();
+      throw new Error(
+        "Sandbox availability changed; restart ACP to review the execution boundary.",
+      );
+    }
+    return selection.sandbox;
+  });
+  await projectSandboxes.seed(projectDir, realSandbox);
 
   const appState = sandboxDegraded ? await readAppState(globalDir) : {};
   const degradedConsent = sandboxDegraded
@@ -383,6 +442,15 @@ export async function buildAcpRuntime(opts: AcpRuntimeOptions): Promise<AcpRunti
   // so BashTool (built once, before initialize) always uses the per-turn sandbox.
   const sandboxHolder: SandboxHolder = { current: realSandbox };
   const delegatingSandbox: Sandbox = {
+    get shell() {
+      return sandboxHolder.current.shell;
+    },
+    execArgv: (argv, opts) => execProgram(sandboxHolder.current, argv, opts),
+    shellExecutable: () =>
+      sandboxHolder.current.shellExecutable?.() ??
+      Promise.resolve(
+        Bun.which(sandboxHolder.current.shell === "powershell" ? "pwsh.exe" : "bash"),
+      ),
     exec: (command, opts) => sandboxHolder.current.exec(command, opts),
     dispose: () => realSandbox.dispose(),
     writeRoot: () => sandboxHolder.current.writeRoot(),
@@ -849,7 +917,7 @@ export async function buildAcpRuntime(opts: AcpRuntimeOptions): Promise<AcpRunti
     projectServices.dispose();
     await configuredMcp.shutdown();
     toolset.dispose();
-    await realSandbox.dispose();
+    await projectSandboxes.dispose();
     log.close();
     db.close();
   };
@@ -884,6 +952,8 @@ export async function buildAcpRuntime(opts: AcpRuntimeOptions): Promise<AcpRunti
     activeSessionHolder,
     projectContext: {
       activate: async (cwd) => {
+        if (sandboxHolder.current === realSandbox)
+          sandboxHolder.current = await projectSandboxes.get(cwd);
         projectServiceHolder.current = await projectServices.get(cwd);
       },
       reset: () => {

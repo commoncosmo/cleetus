@@ -17,6 +17,32 @@ const tdd = skill("tdd", { when: ["coding-task"], match: [] });
 const kw = skill("kw", { when: [], match: ["deploy", "ship it"] });
 const manual = skill("manual"); // no trigger
 
+describe("TDD bootstrap routing", () => {
+  const behavioral = skill("test-driven-development", {
+    when: ["testable-coding-task"],
+    match: [],
+  });
+  it("does not invent behavior tests for a stock scaffold", () => {
+    for (const input of [
+      "Create a vite/typescript site with tailwind css. We'll work on content once it's scaffolded.",
+      "Scaffold a React project",
+      "Set up Vite and Tailwind",
+    ]) {
+      expect(triggeredSkills([behavioral], input)).toEqual([]);
+    }
+  });
+  it("keeps TDD for mixed scaffold and behavior requests", () => {
+    for (const input of [
+      "Scaffold Vite and implement a counter",
+      "Create a Vite app with login validation",
+      "Fix the parser",
+      "Add a rate limiter",
+    ]) {
+      expect(triggeredSkills([behavioral], input)).toEqual([behavioral]);
+    }
+  });
+});
+
 describe("triggeredSkills", () => {
   it("fires a `when: coding-task` skill on an imperative dev request", () => {
     expect(triggeredSkills([tdd], "add a rate limiter").map((s) => s.name)).toEqual(["tdd"]);

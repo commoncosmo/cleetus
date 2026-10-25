@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import type { TestConfig } from "../../config/types";
+import { projectPackageManager } from "../../lib/package-manager";
 
 export interface DetectedTestCommand {
   runnerId: string;
@@ -55,9 +56,7 @@ async function hasTestScript(projectDir: string): Promise<boolean> {
 }
 
 async function packageManager(projectDir: string): Promise<string> {
-  if (await exists(projectDir, "pnpm-lock.yaml")) return "pnpm";
-  if (await exists(projectDir, "yarn.lock")) return "yarn";
-  return "npm";
+  return (await projectPackageManager(projectDir)) ?? "npm";
 }
 
 /**
@@ -77,7 +76,10 @@ export async function detectTestCommand(
     try {
       const pkg = await Bun.file(join(projectDir, "package.json")).json();
       if (typeof pkg.scripts?.[check] === "string")
-        return { command: { runnerId: "script", argv: ["bun", "run", check] }, warnings };
+        return {
+          command: { runnerId: "script", argv: [await packageManager(projectDir), "run", check] },
+          warnings,
+        };
     } catch {
       /* actionable unavailable result below */
     }
@@ -94,7 +96,7 @@ export async function detectTestCommand(
 
   // 1. Node / Bun
   if (await exists(projectDir, "package.json")) {
-    if ((await exists(projectDir, "bun.lockb")) || (await exists(projectDir, "bun.lock"))) {
+    if ((await projectPackageManager(projectDir)) === "bun") {
       if (await hasTestScript(projectDir)) {
         const pkg = await Bun.file(join(projectDir, "package.json")).json();
         const script = pkg.scripts.test.trim();

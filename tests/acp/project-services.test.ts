@@ -27,7 +27,7 @@ describe("AcpProjectServiceRegistry", () => {
     await Promise.all([
       writeFile(join(one, "one.ts"), "export function onlyInOne() { return 1; }\n"),
       writeFile(join(two, "two.ts"), "export function onlyInTwo() { return 2; }\n"),
-      symlink(one, alias),
+      symlink(one, alias, process.platform === "win32" ? "junction" : "dir"),
     ]);
 
     const commands: { command: string; cwd?: string }[] = [];

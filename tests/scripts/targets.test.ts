@@ -2,12 +2,14 @@ import { describe, expect, it } from "bun:test";
 import { TARGETS, assetName } from "../../scripts/targets";
 
 describe("TARGETS", () => {
-  it("ships the four release targets in order", () => {
+  it("supports Unix and Windows build targets in order", () => {
     expect(TARGETS.map((t) => t.bunTarget)).toEqual([
       "bun-linux-x64",
       "bun-linux-arm64",
       "bun-darwin-arm64",
       "bun-darwin-x64",
+      "bun-windows-x64",
+      "bun-windows-arm64",
     ]);
   });
 
@@ -17,6 +19,8 @@ describe("TARGETS", () => {
       "cleetus-linux-arm64",
       "cleetus-darwin-arm64",
       "cleetus-darwin-x64",
+      "cleetus-windows-x64.zip",
+      "cleetus-windows-arm64.zip",
     ]);
   });
 
@@ -35,6 +39,6 @@ describe("assetName", () => {
   });
 
   it("throws on an unknown target", () => {
-    expect(() => assetName("bun-windows-x64")).toThrow("unknown build target");
+    expect(() => assetName("bun-freebsd-x64")).toThrow("unknown build target");
   });
 });

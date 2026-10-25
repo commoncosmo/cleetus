@@ -4,6 +4,7 @@ import { ROOT_COMMAND_HELP } from "../../../src/ui/cli/root-help";
 describe("cleetus root help", () => {
   test("advertises every standalone command dispatched by the root binary", () => {
     expect(ROOT_COMMAND_HELP).toContain("workflow [command]");
+    expect(ROOT_COMMAND_HELP).toContain("doctor --windows");
     expect(ROOT_COMMAND_HELP).toContain("initialize");
     expect(ROOT_COMMAND_HELP).toContain("analyze");
     expect(ROOT_COMMAND_HELP).toContain("eval");

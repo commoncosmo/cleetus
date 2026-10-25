@@ -1,20 +1,33 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, copyFileSync, mkdirSync } from "node:fs";
+import { chmodSync, copyFileSync, cpSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { signCommand } from "./build";
 
 /** True if `dir` appears as a `:`-separated entry in the given PATH string. */
-export function isOnPath(dir: string, pathEnv: string | undefined): boolean {
-  return (pathEnv ?? "").split(":").includes(dir);
+export function isOnPath(
+  dir: string,
+  pathEnv: string | undefined,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  const entries = (pathEnv ?? "").split(platform === "win32" ? ";" : ":");
+  return platform === "win32"
+    ? entries.some((p) => p.toLowerCase() === dir.toLowerCase())
+    : entries.includes(dir);
 }
 
 /** Copy the compiled binary into `targetDir` as an executable `cleetus`. Returns the dest path. */
-export function installBinary(srcBinary: string, targetDir: string): string {
+export function installBinary(
+  srcBinary: string,
+  targetDir: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
   mkdirSync(targetDir, { recursive: true });
-  const dest = join(targetDir, "cleetus");
+  const dest = join(targetDir, platform === "win32" ? "cleetus.exe" : "cleetus");
+  if (platform === "win32")
+    cpSync(join(dirname(srcBinary), "native"), join(targetDir, "native"), { recursive: true });
   copyFileSync(srcBinary, dest);
-  chmodSync(dest, 0o755);
+  if (platform !== "win32") chmodSync(dest, 0o755);
   return dest;
 }
 
@@ -39,11 +52,18 @@ export function resignInPlace(
 
 if (import.meta.main) {
   const targetDir = join(homedir(), ".local", "bin");
-  const dest = installBinary(join(process.cwd(), "dist", "cleetus"), targetDir);
+  const dest = installBinary(
+    join(process.cwd(), "dist", process.platform === "win32" ? "cleetus.exe" : "cleetus"),
+    targetDir,
+  );
   if (resignInPlace(dest)) console.log("re-signed (ad-hoc) for macOS");
   console.log(`installed ${dest}`);
   if (!isOnPath(targetDir, process.env.PATH)) {
     console.log(`\n${targetDir} is not on your PATH. Add this to your shell profile:`);
-    console.log(`  export PATH="$HOME/.local/bin:$PATH"`);
+    console.log(
+      process.platform === "win32"
+        ? `  $env:Path += ';${targetDir}'`
+        : `  export PATH="$HOME/.local/bin:$PATH"`,
+    );
   }
 }

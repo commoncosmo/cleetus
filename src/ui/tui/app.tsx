@@ -85,6 +85,7 @@ import type { WorkflowCommandController } from "../../workflows/interactive-cont
 import type { JsonObject, JsonSchema } from "../../workflows/types";
 import type { RequestWorkflowAuthorization, WorkflowAuthorizationRequest } from "../cli/workflow";
 import { useTheme } from "../theme";
+import { terminalProgress } from "../windows-terminal";
 import { BootstrapLocationPrompt } from "./bootstrap-location-prompt";
 import { BusyIndicator } from "./busy-indicator";
 import { grabClipboardImage } from "./clipboard-image";
@@ -2133,6 +2134,10 @@ export function App(props: AppProps) {
     },
   });
   const promptShowing = Boolean(prompt || workflowPrompt || workflowInput || editorRequest);
+  useEffect(() => {
+    terminalProgress(promptShowing ? "waiting" : busy ? "running" : "clear");
+    return () => terminalProgress("clear");
+  }, [busy, promptShowing]);
   const reserve = liveWindowReserve({
     // The "thinking…" header renders whenever reasoning is buffered, prose streaming or not.
     reasoningHeader:

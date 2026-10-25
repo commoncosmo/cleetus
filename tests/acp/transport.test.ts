@@ -8,6 +8,24 @@ function makeHarness() {
 }
 
 describe("AcpTransport", () => {
+  it("cancels an outbound request and ignores a late response", async () => {
+    const { t, parsed } = makeHarness();
+    const abort = new AbortController();
+    const pending = t.request("terminal/wait_for_exit", {}, { signal: abort.signal });
+    abort.abort();
+    await expect(pending).rejects.toThrow();
+    await t.handleLine(
+      JSON.stringify({ jsonrpc: "2.0", id: parsed()[0].id, result: { exitCode: 0 } }),
+    );
+    t.close();
+    await expect(t.request("later")).rejects.toThrow("closed");
+  });
+  it("close rejects pending calls instead of waiting for their timeout", async () => {
+    const { t } = makeHarness();
+    const pending = t.request("terminal/create");
+    t.close();
+    await expect(pending).rejects.toThrow("closed");
+  });
   it("dispatches an inbound request to its handler and writes one newline-delimited response", async () => {
     const { t, out, parsed } = makeHarness();
     t.onRequest("ping", async (params) => ({ echo: params }));

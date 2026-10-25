@@ -13,23 +13,14 @@ interface Args {
   maxMatches?: number;
 }
 
-async function hasRg(): Promise<boolean> {
-  try {
-    const proc = Bun.spawn(["bash", "-c", "command -v rg >/dev/null 2>&1"]);
-    return (await proc.exited) === 0;
-  } catch {
-    return false;
-  }
-}
-
-async function rgSearch(a: Args, root: string): Promise<string> {
+async function rgSearch(executable: string, a: Args, root: string): Promise<string> {
   const args = ["-n", "--no-heading"];
   if (a.ignoreCase) args.push("-i");
   if (a.filePattern) args.push("--glob", a.filePattern);
   if (a.maxMatches) args.push("--max-count", String(a.maxMatches));
   args.push("-e", a.pattern); // -e binds pattern, immune to leading-dash
   if (a.path) args.push("--", a.path); // -- ends option parsing
-  const proc = Bun.spawn(["rg", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn([executable, ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
   const text = await new Response(proc.stdout).text();
   await proc.exited;
   return text;
@@ -63,6 +54,7 @@ async function jsSearch(a: Args, root: string): Promise<string> {
 }
 
 export class GrepTool implements Tool {
+  constructor(private readonly which: (name: string) => string | null = Bun.which) {}
   name = "grep";
   description = "Search file contents for a regex pattern. Uses ripgrep if available.";
   parameters = {
@@ -105,9 +97,8 @@ export class GrepTool implements Tool {
       if (secretPrefix) return secretPrefix;
     }
     try {
-      const text = (await hasRg())
-        ? await rgSearch(a, ctx.projectDir)
-        : await jsSearch(a, ctx.projectDir);
+      const rg = this.which("rg");
+      const text = rg ? await rgSearch(rg, a, ctx.projectDir) : await jsSearch(a, ctx.projectDir);
       if (text.trim().length === 0) {
         const where = a.path ? ` in ${a.path}` : "";
         return {

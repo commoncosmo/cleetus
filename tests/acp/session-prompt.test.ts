@@ -57,11 +57,18 @@ class TextProvider implements Provider {
 
 let dir: string;
 let log: EventLog;
+const historyDatabases: ReturnType<typeof openDatabase>[] = [];
+function trackedHistory(path: string) {
+  const db = openDatabase(path);
+  historyDatabases.push(db);
+  return new SessionHistoryStore(db);
+}
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "cleetus-acp-"));
   log = new EventLog(join(dir, "events.db"));
 });
 afterEach(async () => {
+  for (const db of historyDatabases.splice(0)) db.close();
   log.close();
   await rm(dir, { recursive: true, force: true });
 });
@@ -345,7 +352,7 @@ describe("ACP command advertisement and dispatch", () => {
   });
 
   it("re-advertises commands after session/load", async () => {
-    const store = new SessionHistoryStore(openDatabase(join(dir, "commands-history.db")));
+    const store = trackedHistory(join(dir, "commands-history.db"));
     store.save("sess-commands", [], []);
     const { out, send } = wire(new TextProvider([]), store, undefined, commands);
     await send(1, "session/load", { sessionId: "sess-commands", cwd: dir });
@@ -697,7 +704,7 @@ describe("session/load + session/set_mode", () => {
   });
 
   it("replays a snapshot's user/assistant prose and returns mode state", async () => {
-    const store = new SessionHistoryStore(openDatabase(join(dir, "history.db")));
+    const store = trackedHistory(join(dir, "history.db"));
     store.save(
       "sess-1",
       [
@@ -725,7 +732,7 @@ describe("session/load + session/set_mode", () => {
   });
 
   it("session/load with no snapshot returns mode state with no replay", async () => {
-    const store = new SessionHistoryStore(openDatabase(join(dir, "history2.db")));
+    const store = trackedHistory(join(dir, "history2.db"));
     const { out, send } = wire(new TextProvider([]), store);
 
     await send(1, "session/load", { sessionId: "missing", cwd: dir });
@@ -736,7 +743,7 @@ describe("session/load + session/set_mode", () => {
   });
 
   it("session/load seeds the runtime so a subsequent session/prompt continues the restored conversation", async () => {
-    const store = new SessionHistoryStore(openDatabase(join(dir, "history3.db")));
+    const store = trackedHistory(join(dir, "history3.db"));
     const priorMessages = [
       { role: "user" as const, content: "what is 2+2?" },
       { role: "assistant" as const, content: "It is 4." },

@@ -7,6 +7,10 @@ import {
 } from "./jsonrpc";
 
 export type MethodHandler = (params: unknown) => Promise<unknown>;
+export interface ClientRequestOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
 
 interface Pending {
   resolve: (v: unknown) => void;
@@ -23,6 +27,7 @@ export const ACP_CLIENT_REQUEST_TIMEOUT_MS = 5 * 60_000;
  *  inbound lines through `handleLine`. A single malformed or unknown message never throws out
  *  of `handleLine` — it produces a JSON-RPC error response (for requests) or is ignored. */
 export class AcpTransport {
+  private closed = false;
   private readonly handlers = new Map<string, MethodHandler>();
   private readonly pending = new Map<JsonRpcId, Pending>();
   private nextId = 1;
@@ -35,23 +40,54 @@ export class AcpTransport {
     this.handlers.set(method, handler);
   }
 
-  request(method: string, params?: unknown): Promise<unknown> {
+  request(method: string, params?: unknown, options: ClientRequestOptions = {}): Promise<unknown> {
+    if (this.closed) return Promise.reject(new Error("ACP connection closed"));
+    if (options.signal?.aborted)
+      return Promise.reject(options.signal.reason ?? new Error("ACP request cancelled"));
     const id = this.nextId++;
     return new Promise<unknown>((resolve, reject) => {
-      const timeoutMs = this.opts.requestTimeoutMs ?? ACP_CLIENT_REQUEST_TIMEOUT_MS;
+      const timeoutMs =
+        options.timeoutMs ?? this.opts.requestTimeoutMs ?? ACP_CLIENT_REQUEST_TIMEOUT_MS;
+      const cleanup = () => {
+        clearTimeout(timer);
+        options.signal?.removeEventListener("abort", abort);
+      };
+      const abort = () => {
+        if (!this.pending.delete(id)) return;
+        cleanup();
+        reject(options.signal?.reason ?? new Error("ACP request cancelled"));
+      };
       const timer = setTimeout(() => {
         if (!this.pending.delete(id)) return;
+        cleanup();
         reject(new Error(`ACP client request timed out after ${timeoutMs}ms: ${method}`));
       }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, {
+        resolve: (value) => {
+          cleanup();
+          resolve(value);
+        },
+        reject: (error) => {
+          cleanup();
+          reject(error);
+        },
+        timer,
+      });
+      options.signal?.addEventListener("abort", abort, { once: true });
       try {
         this.send({ jsonrpc: "2.0", id, method, params });
       } catch (error) {
-        clearTimeout(timer);
+        cleanup();
         this.pending.delete(id);
         reject(error);
       }
     });
+  }
+
+  close(): void {
+    this.closed = true;
+    for (const pending of this.pending.values()) pending.reject(new Error("ACP connection closed"));
+    this.pending.clear();
   }
 
   notify(method: string, params?: unknown): void {

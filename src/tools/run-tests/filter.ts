@@ -19,8 +19,9 @@ function shQuote(s: string): string {
 export function applyFilter(
   runner: ResolvedRunner,
   filter: string,
+  shell: "bash" | "powershell" = "bash",
 ): { argv: string[]; supported: boolean } {
-  const q = shQuote(filter);
+  const q = shell === "powershell" ? `'${filter.replaceAll("'", "''")}'` : shQuote(filter);
   switch (runner.runnerId) {
     case "vitest":
     case "bun":

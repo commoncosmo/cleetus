@@ -85,15 +85,16 @@ class NonzeroSandbox implements Sandbox {
 describe("BashTool survivors", () => {
   it("appends a teardown warning when processes survived a timeout", async () => {
     const tool = new BashTool(new TimedOutWithSurvivorsSandbox());
-    const r = await tool.run({ command: "bun run dev", timeoutMs: 100 }, ctx());
+    const r = await tool.run({ command: "bun run dev", timeoutMs: 1000 }, ctx());
     expect(r.ok).toBe(false);
     expect(r.errorMessage).toContain("⚠ 1 process(es) survived teardown");
     expect(r.errorMessage).toContain("4821");
+    expect(r.errorMessage).not.toContain("process tree was stopped");
   });
 
   it("appends a teardown warning when processes survived a cancellation", async () => {
     const tool = new BashTool(new CancelledWithSurvivorsSandbox());
-    const r = await tool.run({ command: "bun run dev", timeoutMs: 100 }, ctx());
+    const r = await tool.run({ command: "bun run dev", timeoutMs: 1000 }, ctx());
     expect(r.ok).toBe(false);
     expect(r.errorMessage).toContain("⚠ 1 process(es) survived teardown");
     expect(r.errorMessage).toContain("4821");
@@ -117,14 +118,18 @@ describe("BashTool", () => {
 
   it("preserves an upstream pipeline failure when output is trimmed", async () => {
     const tool = new BashTool(new NoneSandbox(dir));
-    const r = await tool.run({ command: "bash -c 'exit 7' | tail -1" }, ctx());
+    const command =
+      process.platform === "win32"
+        ? "cmd.exe /c exit 7 | Select-Object -Last 1"
+        : "bash -c 'exit 7' | tail -1";
+    const r = await tool.run({ command }, ctx());
     expect(r.ok).toBe(false);
     expect(r.errorMessage).toContain("exit 7");
   });
 
   it("times out long commands", async () => {
     const tool = new BashTool(new NoneSandbox(dir));
-    const r = await tool.run({ command: "sleep 10", timeoutMs: 200 }, ctx());
+    const r = await tool.run({ command: "sleep 10", timeoutMs: 1000 }, ctx());
     expect(r.ok).toBe(false);
     expect(r.errorMessage).toMatch(/timed out|timeout/i);
   });
@@ -304,6 +309,18 @@ describe("BashTool project boundary", () => {
 });
 
 describe("BashTool BSD/GNU hint", () => {
+  it("reports a Windows execution denial without a filesystem-write advisory", async () => {
+    const sb = new BoundarySandbox(
+      dir,
+      failResult(
+        "An error occurred trying to start process 'C:\\node.exe' with working directory 'C:\\app'. Access is denied.",
+      ),
+    );
+    const result = await new BashTool(sb).run({ command: "Start-Process node" }, ctx());
+    expect(result.errorCode).toBe("TOOL_FAILED");
+    expect(result.errorMessage).toContain("Process launch was denied");
+    expect(result.errorMessage).not.toContain("Writes are confined");
+  });
   it("appends a targeted hint when a GNU-only flag fails on BSD", async () => {
     const tool = new BashTool(new NonzeroSandbox({ stderr: "cat: illegal option -- A" }));
     const r = await tool.run({ command: "cat -A tsconfig.json" }, ctx());
@@ -328,7 +345,10 @@ describe("BashTool output truncation", () => {
     // ~300KB of filler with the actionable error on the FINAL line — the old head-only
     // truncation dropped it.
     const tool = new BashTool(new NoneSandbox(dir));
-    const command = `head -c 300000 /dev/zero | tr '\\0' x; echo; echo 'ERROR: the real failure'`;
+    const command =
+      process.platform === "win32"
+        ? `[Console]::Write(('x' * 300000)); [Console]::WriteLine('ERROR: the real failure')`
+        : `head -c 300000 /dev/zero | tr '\\0' x; echo; echo 'ERROR: the real failure'`;
     const result = await tool.run({ command }, ctx());
     expect(result.ok).toBe(true);
     expect(result.output).toContain("ERROR: the real failure");

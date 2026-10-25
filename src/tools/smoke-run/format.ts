@@ -36,7 +36,10 @@ export function formatSmokeResult(r: SmokeRunResult): string {
     verdict = `✗ exited with code ${r.exitCode ?? "unknown"} — the command failed; output below`;
   }
 
-  const head = `${verdict}\n$ ${r.command}`;
+  const teardown = r.timedOut
+    ? "\nThe probe has ended and its process tree has been stopped; no background server is retained."
+    : "";
+  const head = `${verdict}${teardown}\n$ ${r.command}`;
   const body = combined.length === 0 ? head : `${head}\n${cappedHeadTail(combined, r.maxLines)}`;
   const warning = survivorWarning(r.survivors);
   return warning ? `${body}\n${warning}` : body;

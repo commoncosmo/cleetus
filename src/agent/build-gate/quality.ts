@@ -1,21 +1,13 @@
 import { join } from "node:path";
 import type { BuildGateConfig } from "../../config/build-gate";
+import { projectPackageManager } from "../../lib/package-manager";
 import type { Sandbox } from "../../sandbox/types";
 import type { VerificationResult } from "../types";
 
 type PackageManager = "bun" | "pnpm" | "yarn" | "npm";
 
-async function exists(projectDir: string, rel: string): Promise<boolean> {
-  return await Bun.file(join(projectDir, rel)).exists();
-}
-
 async function packageManager(projectDir: string): Promise<PackageManager> {
-  if ((await exists(projectDir, "bun.lock")) || (await exists(projectDir, "bun.lockb"))) {
-    return "bun";
-  }
-  if (await exists(projectDir, "pnpm-lock.yaml")) return "pnpm";
-  if (await exists(projectDir, "yarn.lock")) return "yarn";
-  return "npm";
+  return (await projectPackageManager(projectDir)) ?? "npm";
 }
 
 /** Detect deterministic JS/TS quality scripts that should gate final semantic acceptance. */

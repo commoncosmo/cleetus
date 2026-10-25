@@ -1,0 +1,11 @@
+{
+  "name": "cleetus-mxc-poc",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@microsoft/mxc-sdk": "1.0.1"
+  },
+  "devDependencies": {
+    "bun": "1.3.14"
+  }
+}
