@@ -122,14 +122,20 @@ for (const scope of ["--global", "--scratch"]) {
         projectDir: workspace,
         globalPath: join(configDir, "config.yaml"),
       });
-    // A nonresponsive fixture provider avoids first-run setup; listing models remains offline.
-    await writeFile(
-      join(configDir, "config.yaml"),
-      `global_workspace_dir: ${JSON.stringify(workspace)}\nproviders:\n  fixture:\n    type: lmstudio\n    base_url: http://127.0.0.1:1\n`,
-    );
-    const result = await invoke([scope, "--list-models", "--json", "--config-dir", "../config"]);
-    expect(result.code).toBe(0);
-    expect(result.err).not.toContain("Untrusted");
+    // Trust scope is independent of transport failure deadlines. Serve an empty
+    // local catalog rather than racing the test timeout against an offline host.
+    const server = Bun.serve({ port: 0, fetch: () => Response.json({ data: [] }) });
+    try {
+      await writeFile(
+        join(configDir, "config.yaml"),
+        `global_workspace_dir: ${JSON.stringify(workspace)}\nproviders:\n  fixture:\n    type: lmstudio\n    base_url: http://127.0.0.1:${server.port}\n`,
+      );
+      const result = await invoke([scope, "--list-models", "--json", "--config-dir", "../config"]);
+      expect(result.code).toBe(0);
+      expect(result.err).not.toContain("Untrusted");
+    } finally {
+      server.stop(true);
+    }
   });
 }
 

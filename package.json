@@ -41,16 +41,17 @@
     "string-width": "7.2.0",
     "ulid": "2.4.0",
     "yaml": "2.9.0",
-    "zod": "3.25.76"
+    "zod": "4.6.7"
   },
   "overrides": {
     "@hono/node-server": "1.19.15",
-    "body-parser": "2.3.0",
-    "fast-uri": "3.1.8",
+    "body-parser": "2.4.0",
+    "fast-uri": "3.1.9",
     "hono": "4.13.11",
-    "ip-address": "10.7.1",
+    "ip-address": "10.7.5",
     "proxy-addr": "2.0.8",
-    "qs": "6.16.0"
+    "qs": "6.16.0",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",

@@ -12,7 +12,7 @@ const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
     z.boolean(),
     z.null(),
     z.array(jsonValueSchema),
-    z.record(jsonValueSchema),
+    z.record(z.string(), jsonValueSchema),
   ]),
 );
 
@@ -87,7 +87,7 @@ const stepSchema = z
 const outputSchema = z
   .object({
     value: jsonValueSchema,
-    schema: z.record(z.unknown()),
+    schema: z.record(z.string(), z.unknown()),
   })
   .strict();
 
@@ -97,8 +97,8 @@ const manifestSchema = z
     name: z.string().regex(WORKFLOW_NAME),
     revision: z.number().int().min(1),
     description: z.string().min(1).max(500),
-    inputs: z.record(z.unknown()),
-    secrets: z.record(secretSchema).optional(),
+    inputs: z.record(z.string(), z.unknown()),
+    secrets: z.record(z.string(), secretSchema).optional(),
     permissions: permissionsSchema,
     execution: z
       .object({
@@ -113,7 +113,7 @@ const manifestSchema = z
       })
       .strict(),
     steps: z.array(stepSchema).min(1),
-    outputs: z.record(outputSchema).refine((value) => Object.keys(value).length > 0, {
+    outputs: z.record(z.string(), outputSchema).refine((value) => Object.keys(value).length > 0, {
       message: "at least one output is required",
     }),
     presentation: z

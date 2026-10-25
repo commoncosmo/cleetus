@@ -3,7 +3,14 @@ import { z } from "zod";
 import type { JsonValue } from "./types";
 
 const json: z.ZodType<JsonValue> = z.lazy(() =>
-  z.union([z.string(), z.number().finite(), z.boolean(), z.null(), z.array(json), z.record(json)]),
+  z.union([
+    z.string(),
+    z.number().finite(),
+    z.boolean(),
+    z.null(),
+    z.array(json),
+    z.record(z.string(), json),
+  ]),
 );
 
 const schema = z
@@ -11,8 +18,9 @@ const schema = z
     schema_version: z.literal(1),
     name: z.string().min(1),
     mode: z.literal("mock").optional(),
-    inputs: z.record(json).default({}),
+    inputs: z.record(z.string(), json).default({}),
     mocks: z.record(
+      z.string(),
       z
         .object({
           output: json.optional(),
@@ -30,9 +38,9 @@ const schema = z
     expect: z
       .object({
         status: z.enum(["succeeded", "failed", "cancelled"]),
-        outputs: z.record(json).optional(),
+        outputs: z.record(z.string(), json).optional(),
         failed_step: z.string().optional(),
-        attempts: z.record(z.number().int().min(0)).optional(),
+        attempts: z.record(z.string(), z.number().int().min(0)).optional(),
       })
       .strict(),
   })

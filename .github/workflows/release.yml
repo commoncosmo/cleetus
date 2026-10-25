@@ -128,7 +128,7 @@ jobs:
 
   build-windows:
     needs: verify
-    runs-on: windows-latest
+    runs-on: windows-2025
     strategy:
       fail-fast: false
       matrix:
