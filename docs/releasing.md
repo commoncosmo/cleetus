@@ -1,7 +1,8 @@
 # Releasing cleetus
 
 Pushing a `v*` tag triggers `.github/workflows/release.yml`, which cross-compiles four
-binaries, signs + notarizes the macOS ones, and publishes a GitHub Release with checksums.
+binaries plus two Windows packages, signs + notarizes the macOS binaries, and publishes
+a GitHub Release with checksums.
 
 ## One-time setup
 
