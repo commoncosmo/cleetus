@@ -85,7 +85,7 @@ describe("command.run@1", () => {
       },
     );
     expect(fake.calls[0]?.command).toContain("'bun' 'run'");
-    expect(fake.calls[0]?.command).toContain("/scripts/normalize.ts");
+    expect(fake.calls[0]?.command).toContain(join("scripts", "normalize.ts"));
     await expect(
       step.execute(
         resolved({

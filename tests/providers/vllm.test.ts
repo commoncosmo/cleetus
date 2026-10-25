@@ -152,5 +152,5 @@ test("vLLM forwards cancellation to an in-flight chat request", async () => {
     signal: abort.signal,
   });
   abort.abort();
-  await expect(pending).rejects.toThrow("chat failed");
+  await expect(pending).rejects.toBe(abort.signal.reason);
 });

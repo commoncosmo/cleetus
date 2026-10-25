@@ -2,6 +2,7 @@ import { z } from "zod";
 import { isNoResponseFormatError } from "../providers/structured-output";
 import type { ChatOptions, Message, Provider } from "../providers/types";
 import { hasLearnedIntentAnchor, withLearnedIntentAnchor } from "../skills/learned-anchor";
+import { reusableChecks } from "../skills/reusable-checks";
 import type { Skill } from "../skills/types";
 import type { LearnableTurn, PlaybookDraft } from "./types";
 
@@ -63,7 +64,10 @@ Return JSON with:
   "## Avoid", and "## Success checks"
 
 The procedure must preserve useful successful sequencing. Failed attempts may appear only in
-"Avoid". Success checks must be grounded in recorded evidence, not the assistant's confidence.
+"Avoid". Success checks must be rerunnable checks grounded in the recorded commands and success
+signals, not the assistant's confidence. Require evidence from the CURRENT execution. Never copy
+source-run timings, package counts, or historical pass claims into instructions or success checks;
+for example, use "run the build and check its exit status", not "the build completed in 572ms".
 When a lookup can return multiple entities, include a success check that compares the chosen
 entity's available identity fields (for example region or country) with qualifiers already present
 in the original request. Do not require an extra lookup, a hard-coded filter, or rejection of an
@@ -321,7 +325,7 @@ exactly "${opts.existingSkill.name}".${supportInstruction}`
     name,
     description: parsed.description.trim(),
     triggers,
-    body: parsed.body.trim(),
+    body: reusableChecks(parsed.body),
     source: {
       sessionId: opts.turn.sessionId,
       startTs: opts.turn.startTs,

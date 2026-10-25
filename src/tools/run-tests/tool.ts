@@ -95,7 +95,7 @@ export class RunTestsTool implements Tool {
     let argv = runner.argv;
     let note = "";
     if (filter) {
-      const f = applyFilter(runner, filter);
+      const f = applyFilter(runner, filter, this.sandbox.shell);
       argv = f.argv;
       if (!f.supported) note = `(filter not supported for ${runner.runnerId}; ran full suite)\n`;
     }

@@ -1,5 +1,6 @@
 import { realpathSync, statSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
+import { execProgram } from "../../sandbox/program";
 import type { Sandbox } from "../../sandbox/types";
 import { quoteWorkflowCommand } from "../command-quote";
 import { resolved } from "../provenance";
@@ -117,12 +118,16 @@ export function createCommandRunStep(dependencies: CommandRunStepDependencies): 
           "invalid_command",
         );
       }
-      const result = await dependencies.sandbox.exec(quoteWorkflowCommand(value.program, args), {
+      const options = {
         cwd: resolveCwd(context.workspace, value.cwd),
         signal: context.signal,
         stdin: value.stdin,
         env: value.env,
-      });
+      };
+      const result =
+        dependencies.sandbox.execArgv || dependencies.sandbox.shell === "powershell"
+          ? await execProgram(dependencies.sandbox, [value.program, ...args], options)
+          : await dependencies.sandbox.exec(quoteWorkflowCommand(value.program, args), options);
       const maximum = value.max_output_bytes ?? 1_048_576;
       const stdout = bounded(result.stdout, maximum, "command stdout");
       const stderr = bounded(result.stderr, maximum, "command stderr");

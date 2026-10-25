@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { resolvePowerShell } from "../../sandbox/powershell";
 import type { ExecResult, Sandbox } from "../../sandbox/types";
 import { SandboxUnavailableError } from "../../sandbox/types";
 import type { Tool, ToolContext, ToolResult } from "../types";
@@ -8,6 +9,7 @@ import {
   controlProbeCommand,
   parseControlProbe,
 } from "./control-probe";
+import { windowsRenderScript } from "./windows";
 
 /** The model's common first instinct is `cd <projectDir> && bun run dev …`. The launch already runs
  * from the project root, so a leading `cd` to that root is redundant, not an error — strip it so the
@@ -162,7 +164,7 @@ export function classifyControlAttempt(
       return {
         kind: "fail",
         observed: true,
-        detail: `render_check found the route but primary control "${meta.expectedControl}" was not usable (${probe.detail ?? "no geometry detail"}; found=${probe.controlFound}, visible=${probe.controlVisible}, enabled=${probe.controlEnabled}, occluded=${probe.controlOccluded})`,
+        detail: `render_check found the route but primary control "${meta.expectedControl}" was not usable (${probe.detail ?? "no geometry detail"}; found=${probe.controlFound}, visible=${probe.controlVisible}, enabled=${probe.controlEnabled}, occluded=${probe.controlOccluded}).${!probe.controlFound ? " expectedControl must identify an interactive element (button, link, input, or another focusable control). Headings and static text belong in expectedText. For a static scaffold, omit expectedControl and retain expectedText and expectStyled. If an interactive control is required by the task, keep the assertion and fix the missing control." : ""}`,
       };
     }
     if (meta.expectedAfterText && probe.afterTextPresent !== true) {
@@ -224,8 +226,16 @@ export function renderAttemptToToolResult(attempt: RenderAttempt): ToolResult {
       errorCode: "TOOL_FAILED",
       errorMessage: attempt.detail,
       verificationUnavailable: true,
+      verificationBlocked: true,
     };
   }
+  if (attempt.kind === "not-ready")
+    return {
+      ok: false,
+      errorCode: "TOOL_FAILED",
+      errorMessage: attempt.detail,
+      verificationUnavailable: true,
+    };
   return {
     ok: false,
     errorCode: "TOOL_FAILED",
@@ -257,7 +267,7 @@ export function isBrowserRenderCommand(command: string): boolean {
 }
 
 const LOCAL_LAUNCH_COMMAND =
-  /^(?:bunx\s+vite\b|bun\s+run\s+(?:dev|start|preview)(?:\s|$)|bunx\s+(?:astro|next|nuxt)\s+(?:dev|start)(?:\s|$))/i;
+  /^(?:(?:bunx|npx(?:\s+--no-install)?)\s+vite\b|(?:bun|npm|pnpm|yarn)\s+run\s+(?:dev|start|preview)(?:\s|$)|(?:pnpm|yarn)\s+(?:dev|start|preview)(?:\s|$)|bunx\s+(?:astro|next|nuxt)\s+(?:dev|start)(?:\s|$))/i;
 
 export function isLocalRenderUrl(value: string): boolean {
   try {
@@ -414,7 +424,7 @@ export class RenderCheckTool implements Tool {
       launchCommand: {
         type: "string",
         description:
-          "Existing Bun dev command, such as bun run dev -- --port 5173. It already runs from the project root; do not prefix cd or use shell operators.",
+          "Existing project dev command, such as npm run dev -- --port 5173 (also Bun/pnpm/yarn). It already runs from the project root; do not prefix cd or use shell operators.",
       },
       url: { type: "string", description: "Local HTTP page opened after launchCommand starts" },
       expectedText: {
@@ -429,7 +439,7 @@ export class RenderCheckTool implements Tool {
       expectedControl: {
         type: "string",
         description:
-          "Accessible name, label, title, placeholder, or visible text of a primary control that must be fully visible, enabled, and unobscured.",
+          "Accessible name, label, title, placeholder, or text of an INTERACTIVE element: button, link, input, select, or another focusable control. Do not put headings/static text here; use expectedText instead. Omit for a static scaffold while retaining expectedText and expectStyled. Required interactions must still be tested.",
       },
       expectedAfterText: {
         type: "string",
@@ -464,8 +474,15 @@ export class RenderCheckTool implements Tool {
 
   async run(args: unknown, ctx: ToolContext): Promise<ToolResult> {
     const input = args as RenderCheckArgs;
-    const command = input.command;
-    const launchCommand = input.launchCommand;
+    const serverInCommand =
+      typeof input.command === "string" &&
+      LOCAL_LAUNCH_COMMAND.test(input.command.trim()) &&
+      typeof input.url === "string";
+    const command =
+      serverInCommand || (typeof input.launchCommand === "string" && typeof input.url === "string")
+        ? undefined
+        : input.command;
+    const launchCommand = input.launchCommand ?? (serverInCommand ? input.command : undefined);
     const url = input.url;
     const expectedText = input.expectedText;
     const expectedControl = input.expectedControl;
@@ -633,7 +650,7 @@ export class RenderCheckTool implements Tool {
         ok: false,
         errorCode: "TOOL_FAILED",
         errorMessage:
-          "launchCommand must be a direct existing Bun dev/preview command, for example `bun run dev -- --port 5173` or `bunx vite --port 5173`",
+          "launchCommand must be a direct existing dev/preview command, for example `npm run dev -- --port 5173` (Bun/pnpm/yarn also supported)",
       };
     }
     if (!isLocalRenderUrl(url)) {
@@ -642,6 +659,86 @@ export class RenderCheckTool implements Tool {
         errorCode: "TOOL_FAILED",
         errorMessage: "self-contained render_check only opens an http://localhost URL",
       };
+    }
+
+    if (this.sandbox.shell === "powershell") {
+      const bun = Bun.which("bun.exe");
+      let powershell: string | null;
+      try {
+        powershell = await (this.sandbox.shellExecutable?.() ??
+          resolvePowerShell(Bun.which("pwsh.exe")));
+      } catch (error) {
+        return {
+          ok: false,
+          errorCode: "TOOL_FAILED",
+          verificationUnavailable: true,
+          verificationBlocked: true,
+          errorMessage: (error as Error).message,
+        };
+      }
+      if (!bun || !powershell || !this.sandbox.execArgv)
+        return {
+          ok: false,
+          errorCode: "TOOL_FAILED",
+          verificationUnavailable: true,
+          verificationBlocked: true,
+          errorMessage:
+            "Windows render verification requires Bun and PowerShell 7 on PATH and a sandbox with direct program execution. Install the missing runtime; do not add project browser dependencies.",
+        };
+      try {
+        const result = await this.sandbox.execArgv([bun, "run", "-"], {
+          cwd: ctx.projectDir,
+          signal: ctx.abortSignal,
+          timeoutMs: this.cfg.timeoutMs,
+          stdin: windowsRenderScript({
+            launchCommand,
+            url,
+            expectedText,
+            expectedControl,
+            expectedAfterText,
+            powershell,
+            budgetMs: Math.min(this.cfg.timeoutMs, RENDER_READINESS_BUDGET_MS),
+          }),
+        });
+        if (result.cancelled || ctx.abortSignal.aborted)
+          return {
+            ok: false,
+            errorCode: "TOOL_FAILED",
+            errorMessage: "render_check cancelled; server and browser stopped",
+          };
+        const probe = parseControlProbe(result.stdout);
+        if (!probe || result.timedOut || result.exitCode !== 0)
+          return {
+            ok: false,
+            errorCode: "TOOL_FAILED",
+            verificationUnavailable: !result.stderr.includes("CLEETUS_RENDER_SERVER_EXIT"),
+            verificationBlocked:
+              /CLEETUS_BROWSER_UNAVAILABLE|uv_spawn|CLEETUS_RENDER_BACKEND_ERROR/.test(
+                result.stderr,
+              ),
+            errorMessage: `Windows render verification could not complete. Server and browser stopped.\n${capOutput([result.stdout, result.stderr].join("\n"), this.cfg.maxOutputLines)}`,
+          };
+        const verdict = renderAttemptToToolResult(
+          classifyControlAttempt(probe, result, {
+            launchCommand,
+            url,
+            expectedText,
+            expectedControl,
+            expectedAfterText,
+            expectStyled,
+          }),
+        );
+        if (verdict.output)
+          verdict.output += "\nRender server and browser stopped after verification.";
+        return verdict;
+      } catch (error) {
+        return {
+          ok: false,
+          errorCode: "TOOL_FAILED",
+          verificationUnavailable: !ctx.abortSignal.aborted,
+          errorMessage: (error as Error).message,
+        };
+      }
     }
 
     const serverAbort = new AbortController();

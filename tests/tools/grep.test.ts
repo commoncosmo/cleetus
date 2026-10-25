@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,6 +17,40 @@ afterEach(async () => {
 });
 
 describe("GrepTool", () => {
+  it("uses the built-in fallback without spawning Bash when ripgrep is missing", async () => {
+    const spawn = spyOn(Bun, "spawn");
+    try {
+      const tool = new GrepTool(() => null);
+      const result = await tool.run({ pattern: "function" }, ctx());
+      expect(result.ok).toBe(true);
+      expect(result.output).toContain("a.ts");
+      expect(spawn).not.toHaveBeenCalled();
+    } finally {
+      spawn.mockRestore();
+    }
+  });
+  it.skipIf(!Bun.which("rg"))(
+    "launches resolved ripgrep directly, without a discovery shell",
+    async () => {
+      const executable = Bun.which("rg")!;
+      const names: string[] = [];
+      const spawn = spyOn(Bun, "spawn");
+      try {
+        const tool = new GrepTool((name) => {
+          names.push(name);
+          return executable;
+        });
+        const result = await tool.run({ pattern: "function" }, ctx());
+        expect(result.ok).toBe(true);
+        expect(result.output).toContain("a.ts");
+        expect(names).toEqual(["rg"]);
+        expect(spawn.mock.calls).toHaveLength(1);
+        expect((spawn.mock.calls[0]?.[0] as string[])[0]).toBe(executable);
+      } finally {
+        spawn.mockRestore();
+      }
+    },
+  );
   const tool = new GrepTool();
   it("finds matches across files", async () => {
     const r = await tool.run({ pattern: "function" }, ctx());

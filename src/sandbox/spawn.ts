@@ -108,6 +108,8 @@ function makeStreamCollector(stream: ReadableStream<Uint8Array>) {
  * `cancelled` (deliberate abort) supersedes `timedOut`: the two are never both true.
  */
 export async function spawnCollect(argv: string[], opts: ExecOptions): Promise<ExecResult> {
+  if (opts.signal.aborted)
+    return { stdout: "", stderr: "", exitCode: null, timedOut: false, cancelled: true };
   const proc = Bun.spawn(argv, {
     cwd: opts.cwd,
     env: opts.env ? { ...process.env, ...opts.env } : undefined,
@@ -118,13 +120,23 @@ export async function spawnCollect(argv: string[], opts: ExecOptions): Promise<E
     // kill the WHOLE subtree, not just the direct child. A dev-server command like
     // `bun tauri dev` forks node → vite → the app binary; signalling only the top child
     // orphans the rest, which keep holding the dev-server port. See killTree.
-    detached: true,
+    detached: process.platform !== "win32",
   });
   let timedOut = false;
   let cancelled = false;
   // Signal the entire process group (negative pid). Falls back to the direct child if the
   // group is already gone (ESRCH) or detach somehow didn't take — never throws.
   const killTree = (signal: NodeJS.Signals) => {
+    // Windows MXC owns the contained Job Object. Killing its executor closes that
+    // lifetime boundary; Unix negative-PID signals are invalid on Windows.
+    if (process.platform === "win32") {
+      try {
+        proc.kill();
+      } catch {
+        /* already exited */
+      }
+      return;
+    }
     try {
       process.kill(-proc.pid, signal);
     } catch {
@@ -171,7 +183,10 @@ export async function spawnCollect(argv: string[], opts: ExecOptions): Promise<E
     ]);
     // After a kill, confirm the whole group actually died (re-SIGKILL within a bounded
     // window) instead of assuming it. A lingering child becomes a surfaced survivor.
-    const survivors = killed ? await verifyGroupDead(proc.pid, { kill: killTree }) : [];
+    const survivors =
+      killed && process.platform !== "win32"
+        ? await verifyGroupDead(proc.pid, { kill: killTree })
+        : [];
     // Abort supersedes a coincidental timeout: never report both.
     if (cancelled) timedOut = false;
     const result: ExecResult = { stdout, stderr, exitCode, timedOut, cancelled };

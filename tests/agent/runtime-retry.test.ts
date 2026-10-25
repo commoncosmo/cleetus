@@ -15,7 +15,8 @@ import { ToolRegistry } from "../../src/tools/registry";
 import type { Tool } from "../../src/tools/types";
 
 type Behavior =
-  | { kind: "throw"; retryable: boolean; message: string }
+  | { kind: "throw"; retryable: boolean; message: string; code?: "PROVIDER_UNREACHABLE" }
+  | { kind: "tool"; name?: string; args?: unknown }
   | { kind: "stop" }
   | { kind: "empty_markup" }
   | { kind: "empty_plain" };
@@ -32,7 +33,17 @@ class FlakyProvider implements Provider {
     this.calls.push(opts);
     const b = this.behaviors.shift() ?? { kind: "stop" };
     if (b.kind === "throw") {
-      throw new CleetusError("PROVIDER_INVALID_RESPONSE", b.message, { retryable: b.retryable });
+      throw new CleetusError(b.code ?? "PROVIDER_INVALID_RESPONSE", b.message, {
+        retryable: b.retryable,
+      });
+    }
+    if (b.kind === "tool") {
+      yield {
+        type: "tool-call",
+        call: { id: `tool-${this.calls.length}`, name: b.name ?? "glob", args: b.args ?? {} },
+      };
+      yield { type: "finish", reason: "tool-calls" };
+      return;
     }
     if (b.kind === "empty_markup") {
       // Tool call leaked into the reasoning channel; no text, no tool_calls → empty turn.
@@ -86,11 +97,16 @@ const dummyTool: Tool = {
   run: async () => ({ ok: true, output: "" }),
 };
 
-function makeRuntime(provider: Provider, overrides?: Partial<AgentRuntimeOptions>): AgentRuntime {
+function makeRuntime(
+  provider: Provider,
+  overrides?: Partial<AgentRuntimeOptions>,
+  extraTools: Tool[] = [],
+): AgentRuntime {
   const providers = new ProviderRegistry();
   providers.register("lm", provider);
   const tools = new ToolRegistry();
   tools.register(dummyTool);
+  for (const tool of extraTools) tools.register(tool);
   return new AgentRuntime({
     providers,
     tools,
@@ -106,6 +122,102 @@ function makeRuntime(provider: Provider, overrides?: Partial<AgentRuntimeOptions
 }
 
 describe("AgentRuntime retry on retryable provider failure", () => {
+  it("stops unavailable render workarounds before permission and execution, allowing build and a fresh turn", async () => {
+    let renders = 0;
+    const shell: string[] = [];
+    let permissions = 0;
+    const behavior: Behavior[] = [
+      {
+        kind: "tool",
+        name: "render_check",
+        args: { launchCommand: "npm run dev", url: "http://localhost:5173", expectedText: "ct4" },
+      },
+      {
+        kind: "tool",
+        name: "render_check",
+        args: { launchCommand: "npm run dev", url: "http://localhost:9999", expectedText: "ct4" },
+      },
+      { kind: "tool", name: "bash", args: { command: "Start-Process npm" } },
+      { kind: "tool", name: "bash", args: { command: "npm run build" } },
+      { kind: "stop" },
+    ];
+    const provider = new FlakyProvider(behavior);
+    const runtime = makeRuntime(
+      provider,
+      {
+        resolvePermission: async () => {
+          permissions++;
+          return "allow";
+        },
+      },
+      [
+        {
+          ...dummyTool,
+          name: "render_check",
+          run: async () => {
+            renders++;
+            return {
+              ok: false,
+              verificationUnavailable: true,
+              verificationBlocked: true,
+              errorMessage: "PowerShell prerequisite missing",
+            };
+          },
+        },
+        {
+          ...dummyTool,
+          name: "bash",
+          run: async (args) => {
+            shell.push((args as { command: string }).command);
+            return { ok: true, output: "Build passed" };
+          },
+        },
+      ],
+    );
+    const s = sessions.create({ provider: "lm", model: "m" });
+    await runtime.runTurn(s.id, "go");
+    expect(renders).toBe(1);
+    expect(shell).toEqual(["npm run build"]);
+    expect(permissions).toBe(2);
+    behavior.push(
+      {
+        kind: "tool",
+        name: "render_check",
+        args: { launchCommand: "npm run dev", url: "http://localhost:5173", expectedText: "ct4" },
+      },
+      { kind: "stop" },
+    );
+    await runtime.runTurn(s.id, "try again after repair");
+    expect(renders).toBe(2);
+  });
+  it("retries a connection reset without rerunning completed tools", async () => {
+    const provider = new FlakyProvider([
+      { kind: "tool" },
+      { kind: "throw", code: "PROVIDER_UNREACHABLE", retryable: true, message: "ECONNRESET" },
+      { kind: "stop" },
+    ]);
+    const runtime = makeRuntime(provider);
+    const s = sessions.create({ provider: "lm", model: "m" });
+    const result = await runtime.runTurn(s.id, "go");
+    expect(result.assistantText).toBe("ok");
+    expect(provider.calls).toHaveLength(3);
+    expect(log.query(s.id).filter((e) => e.type === "tool_call_start")).toHaveLength(1);
+    expect(provider.calls[2]!.messages).toEqual(provider.calls[1]!.messages);
+  });
+
+  it("cancels during connection retry backoff without another request", async () => {
+    const provider = new FlakyProvider([
+      { kind: "throw", code: "PROVIDER_UNREACHABLE", retryable: true, message: "ECONNRESET" },
+    ]);
+    const abort = new AbortController();
+    const runtime = makeRuntime(provider);
+    const s = sessions.create({ provider: "lm", model: "m" });
+    const timer = setTimeout(() => abort.abort(), 100);
+    const result = await runtime.runTurn(s.id, "go", abort.signal);
+    clearTimeout(timer);
+    expect(provider.calls).toHaveLength(1);
+    expect(result.stoppedReason).toBe("cancelled");
+  });
   it("resamples once on a retryable error and recovers", async () => {
     const provider = new FlakyProvider([
       { kind: "throw", retryable: true, message: TOOL_PARSE },

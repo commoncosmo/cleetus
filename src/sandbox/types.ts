@@ -29,12 +29,18 @@ export interface ExecResult {
 }
 
 export interface Sandbox {
+  /** Absent means the historical Bash contract. */
+  readonly shell?: "bash" | "powershell";
+  /** Selected shell executable, validated for the backend's containment requirements. */
+  shellExecutable?(): Promise<string | null>;
   /**
    * Run a shell command. Returns the raw result for any command that actually ran
    * (including a non-zero exit). Throws SandboxUnavailableError only when the sandbox
    * infrastructure itself cannot run the command (e.g. the container failed to start).
    */
   exec(command: string, opts: ExecOptions): Promise<ExecResult>;
+  /** Optional direct-program execution; avoids shell quoting for generated argv. */
+  execArgv?(argv: string[], opts: ExecOptions): Promise<ExecResult>;
   dispose(): Promise<void>;
   /** The directory writes are confined to, or null when the sandbox does not confine writes
    *  (backend: none, host→none degrade, or ACP terminal mode where the editor is the boundary). */

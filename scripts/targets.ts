@@ -5,15 +5,17 @@ export interface BuildTarget {
   /** Published Release asset filename, e.g. "cleetus-darwin-arm64". */
   asset: string;
   /** OS family — decides runner and whether code signing applies. */
-  os: "linux" | "darwin";
+  os: "linux" | "darwin" | "windows";
 }
 
-/** The four targets the release pipeline produces. */
+/** Supported build targets. Windows packages also require the adjacent native runtime. */
 export const TARGETS: BuildTarget[] = [
   { bunTarget: "bun-linux-x64", asset: "cleetus-linux-x64", os: "linux" },
   { bunTarget: "bun-linux-arm64", asset: "cleetus-linux-arm64", os: "linux" },
   { bunTarget: "bun-darwin-arm64", asset: "cleetus-darwin-arm64", os: "darwin" },
   { bunTarget: "bun-darwin-x64", asset: "cleetus-darwin-x64", os: "darwin" },
+  { bunTarget: "bun-windows-x64", asset: "cleetus-windows-x64.zip", os: "windows" },
+  { bunTarget: "bun-windows-arm64", asset: "cleetus-windows-arm64.zip", os: "windows" },
 ];
 
 /** Map a bun target to its Release asset filename. Throws on an unknown target. */

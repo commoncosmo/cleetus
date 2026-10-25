@@ -25,7 +25,7 @@ export class EventLog {
   private mirrorWriteFailing = false;
 
   constructor(dbPath: string, opts?: { mirrorPath?: string }) {
-    mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
+    if (dbPath !== ":memory:") mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
     this.db = openDatabase(dbPath, { create: true });
     this.initialize(this.db);
     if (opts?.mirrorPath && opts.mirrorPath !== dbPath && dbPath !== ":memory:") {

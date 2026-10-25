@@ -1,10 +1,11 @@
+import { reusableChecks } from "./reusable-checks";
 import type { Skill } from "./types";
 
 /** Assemble the skill's playbook body plus (for directory skills) the progressive-disclosure
  *  block naming the base dir and bundled files. No user-args trailer. Shared by composeSkillTurn
  *  and renderSkillReminder so the directory block is defined once (DRY). */
 export function composeSkillBody(skill: Skill): string {
-  let body = skill.body.trim();
+  let body = skill.learned ? reusableChecks(skill.body) : skill.body.trim();
   if (skill.baseDir) {
     body += `\n\nBase directory for this skill: ${skill.baseDir}`;
     if (skill.resources && skill.resources.length > 0) {

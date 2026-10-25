@@ -2,7 +2,16 @@
  *  EPERM (Seatbelt), EACCES, or EROFS (bwrap / read-only Docker mounts). We match the shell's
  *  error text rather than parsing the command — the OS sandbox is the enforcement layer. */
 export function looksLikeWriteDenial(output: string): boolean {
-  return /operation not permitted|permission denied|read-only file system/i.test(output);
+  if (looksLikeExecutionDenial(output)) return false;
+  return /operation not permitted|permission denied|read-only file system|access.*denied/i.test(
+    output,
+  );
+}
+
+export function looksLikeExecutionDenial(output: string): boolean {
+  return /(?:permission denied|operation not permitted)[^\n]*uv_spawn|uv_spawn[^\n]*(?:permission denied|operation not permitted)|trying to start process[^\n]*(?:access.*denied)|application.control policy.*blocked/i.test(
+    output,
+  );
 }
 
 /** Startup notice when the active sandbox does not confine writes (writeRoot === null), else

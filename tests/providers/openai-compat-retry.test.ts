@@ -26,6 +26,42 @@ async function drain(): Promise<void> {
 }
 
 describe("chatOpenAI error retryability", () => {
+  it("marks pre-response connection resets retryable, including nested fetch causes", async () => {
+    for (const failure of [
+      Object.assign(new Error("socket closed"), { code: "ECONNRESET" }),
+      new TypeError("fetch failed", { cause: { code: "ECONNRESET" } }),
+    ]) {
+      globalThis.fetch = (async () => {
+        throw failure;
+      }) as unknown as typeof fetch;
+      await expect(drain()).rejects.toMatchObject({
+        code: "PROVIDER_UNREACHABLE",
+        retryable: true,
+      });
+    }
+  });
+  it("does not retry configuration errors or cancellation before a response", async () => {
+    globalThis.fetch = (async () => {
+      throw new TypeError("Invalid URL");
+    }) as unknown as typeof fetch;
+    await expect(drain()).rejects.toMatchObject({ retryable: false });
+    const abort = new AbortController();
+    const failure = new DOMException("Cancelled", "AbortError");
+    globalThis.fetch = (async () => {
+      abort.abort(failure);
+      throw Object.assign(new Error("socket closed"), { code: "ECONNRESET" });
+    }) as unknown as typeof fetch;
+    const stream = chatOpenAI(
+      { baseUrl: "http://x" },
+      { model: "m", messages: [], signal: abort.signal },
+    );
+    await expect(
+      (async () => {
+        for await (const _ of stream) {
+        }
+      })(),
+    ).rejects.toBe(failure);
+  });
   it("marks a mid-stream disconnect retryable without emitting buffered tool calls", async () => {
     const failure = new Error("The socket connection was closed unexpectedly.");
     let pulls = 0;

@@ -9,6 +9,18 @@ import type { Skill } from "../../src/skills/types";
 
 const skill: Skill = { name: "scan", description: "d", source: "built-in", body: "PLAYBOOK BODY" };
 
+it("does not inject historical evidence from legacy learned playbooks", () => {
+  const learned: Skill = {
+    ...skill,
+    source: "global",
+    learned: { sourceSessions: ["old-session"], revision: 1 },
+    body: "## Success checks\n- Run npm run build and check exit status.\n- Recorded evidence: build completed in 572ms.",
+  };
+  expect(composeSkillBody(learned)).not.toContain("572ms");
+  expect(composeSkillBody(learned)).toContain("check exit status");
+  expect(composeSkillBody({ ...learned, learned: undefined })).toContain("572ms");
+});
+
 /** The injected part of a composed turn — what the model sees but the transcript hides. */
 const reminderBlock = (out: string): string =>
   /<system-reminder>([\s\S]*)<\/system-reminder>/.exec(out)?.[1] ?? "";

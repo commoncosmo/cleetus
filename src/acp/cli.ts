@@ -21,6 +21,7 @@ export interface AcpCliOptions {
   inheritProjectMemory?: boolean;
   fuckit?: boolean;
   verbose?: boolean;
+  shellExecutable?: string;
 }
 
 /** Parse the post-`acp` argv into ACP runtime options. `cleetus acp` is dispatched by an early
@@ -31,6 +32,10 @@ export function parseAcpOptions(argv: string[]): AcpCliOptions {
     .name("cleetus acp")
     .option("--provider <name>", "override provider")
     .option("--model <name>", "override model")
+    .option(
+      "--shell-executable <path>",
+      "absolute path to PowerShell 7 on Windows (overrides PATH)",
+    )
     .option("--route <mode>", "routing mode: manual | speed | smart")
     .option("--route-small-provider <name>", "routing small-tier provider")
     .option("--route-small-model <name>", "routing small-tier model")
@@ -82,6 +87,7 @@ export function parseAcpOptions(argv: string[]): AcpCliOptions {
     projectMemory?: boolean;
     fuckit?: boolean;
     verbose?: boolean;
+    shellExecutable?: string;
   }>();
   return {
     provider: o.provider,
@@ -104,5 +110,6 @@ export function parseAcpOptions(argv: string[]): AcpCliOptions {
     inheritProjectMemory: o.projectMemory ?? true,
     fuckit: o.fuckit,
     verbose: o.verbose,
+    shellExecutable: o.shellExecutable,
   };
 }

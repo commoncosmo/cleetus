@@ -9,6 +9,7 @@ import { EventLog } from "../../src/events/log";
 import { ProviderRegistry } from "../../src/providers/registry";
 import type { ChatOptions, Provider, StreamEvent } from "../../src/providers/types";
 import { ToolDispatcher } from "../../src/tools/dispatcher";
+import { ReadFileTool } from "../../src/tools/read-file";
 import { ToolRegistry } from "../../src/tools/registry";
 import { WriteFileTool } from "../../src/tools/write-file";
 
@@ -40,6 +41,7 @@ function harness(
   providers.register("local", provider);
   const tools = new ToolRegistry();
   tools.register(new WriteFileTool());
+  tools.register(new ReadFileTool());
   for (const name of ["render_check", "smoke_run", "apply_patch"])
     tools.register({
       name,
@@ -68,6 +70,102 @@ const done: StreamEvent[] = [
   { type: "text-delta", text: "Implemented successfully." },
   { type: "finish", reason: "stop" },
 ];
+
+test("audit inspection cannot consume the calls reserved for repair and verification", async () => {
+  const call = (id: string, name: string, args: unknown): StreamEvent[] => [
+    { type: "tool-call", call: { id, name, args } },
+    { type: "finish", reason: "tool-calls" },
+  ];
+  const { runtime } = harness(
+    (_request, index) => {
+      if (index === 0)
+        return call("initial", "write_file", {
+          path: "app.ts",
+          content: "export const value = 1;",
+        });
+      if (index === 1) return done;
+      if (index === 2)
+        return [
+          ...Array.from(
+            { length: 12 },
+            (_, i): StreamEvent => ({
+              type: "tool-call",
+              call: { id: `read-${i}`, name: "read_file", args: { path: "app.ts" } },
+            }),
+          ),
+          { type: "finish", reason: "tool-calls" },
+        ];
+      if (index === 3)
+        return call("repair", "write_file", { path: "app.ts", content: "export const value = 2;" });
+      if (index === 4)
+        return call("verify", "render_check", {
+          launchCommand: "npm run dev",
+          url: "http://localhost:5173",
+          expectedText: "value",
+        });
+      return done;
+    },
+    { completionAudit: true },
+  );
+  const result = await runtime.runTurn("s", "Implement a feature in app.ts");
+  expect(await Bun.file(join(dir, "app.ts")).text()).toBe("export const value = 2;");
+  expect(result.stoppedReason).not.toBe("no_progress");
+  expect(
+    log
+      .query("s")
+      .filter(
+        (e) =>
+          e.type === "tool_call_end" &&
+          (e.payload as { call: { name: string } }).call.name === "read_file",
+      ),
+  ).toHaveLength(8);
+});
+
+test("an exhausted audit cannot report a blocked edit as completed", async () => {
+  const { runtime } = harness(
+    (request, index) => {
+      if (index === 0)
+        return [
+          {
+            type: "tool-call",
+            call: {
+              id: "initial",
+              name: "write_file",
+              args: { path: "app.ts", content: "export const value = 1;" },
+            },
+          },
+          { type: "finish", reason: "tool-calls" },
+        ];
+      if (index === 1) return done;
+      if (request.tools?.length === 0)
+        return [
+          {
+            type: "text-delta",
+            text: "I rewrote navigation.test.ts and added a passing click test.",
+          },
+          { type: "finish", reason: "stop" },
+        ];
+      return [
+        { type: "tool-call", call: { id: "read", name: "read_file", args: { path: "app.ts" } } },
+        {
+          type: "tool-call",
+          call: {
+            id: "blocked",
+            name: "write_file",
+            args: { path: "navigation.test.ts", content: "new click test" },
+          },
+        },
+        { type: "finish", reason: "tool-calls" },
+      ];
+    },
+    { completionAudit: true, completionAuditLimits: { modelCalls: 6, toolAttempts: 1 } },
+  );
+  const result = await runtime.runTurn("s", "Implement a feature in app.ts");
+  expect(await Bun.file(join(dir, "navigation.test.ts")).exists()).toBe(false);
+  expect(result.assistantText).not.toContain("I rewrote");
+  expect(result.assistantText).toContain("blocked before execution");
+  expect(result.assistantText).toContain("No audit repair was executed");
+});
 
 test("audit counts rejected tools in a batch and terminates with an unresolved result", async () => {
   const { runtime, requests } = harness(

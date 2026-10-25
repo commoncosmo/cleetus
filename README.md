@@ -313,6 +313,9 @@ the terminal application while routing supported file, terminal, permission, and
 through the client. Use `cleetus acp --help` for ACP-specific overrides. Multi-worker chat
 orchestration is currently available only through the terminal surface.
 
+See [ACP setup and Windows execution boundaries](docs/acp.md) for editor launch
+configuration, prerequisites, client terminals, and cancellation behavior.
+
 To skip ordinary tool permission prompts, launch `cleetus acp --fuckit` (for example, use
 `"args": ["acp", "--fuckit"]` in the client's agent configuration). This requires the explicit
 launch flag; ACP does not inherit `permissions_disabled` from config. It also permits file writes
@@ -974,7 +977,7 @@ cleetus runs `bash` tool commands inside a sandbox. The backend is chosen by
 
 | `backend` | macOS | Linux | Windows |
 |-----------|-------|-------|---------|
-| `host` (default) | Seatbelt (`sandbox-exec`) | bubblewrap (`bwrap`) if installed, else falls back to `none` | falls back to `none` |
+| `host` (default) | Seatbelt (`sandbox-exec`) | bubblewrap (`bwrap`) if installed, else falls back to `none` | MXC ProcessContainer; fails closed if unavailable |
 | `docker` | Linux container (Docker Desktop VM) | Linux container | Linux container |
 | `none` | runs on the host, guarded only by permission prompts | same | same |
 
@@ -1001,11 +1004,22 @@ Windows, Docker is a Linux VM — anything you build inside it is a **Linux** bi
 project with native dependencies built in Docker will not run on the macOS/Windows host.
 Prefer `host` unless you specifically want a containerized Linux toolchain.
 
-**Windows.** There is no native Windows sandbox (the same is true of every comparable
-coding agent), so `host` falls back to `none` and protection comes from cleetus's
-permission prompts. For real sandboxing on Windows, work inside **WSL** — that is a Linux
-environment, so the `host` (bubblewrap) backend applies and your build and run environment
-stay consistent.
+**Windows.** Native host sandboxing uses the bundled Microsoft Execution Containers
+(MXC) executor on serviced Windows 11, with PowerShell 7.4+ (`pwsh.exe` on PATH).
+Extract the entire Windows ZIP: `native/wxc-exec.exe` must remain beside `cleetus.exe`.
+The compatibility tool name `bash` runs PowerShell commands on native Windows; use
+PowerShell syntax in commands, hooks, and configured checks. Git and workflow program
+invocations use direct argv where supported. Git Bash/MSYS cannot initialize inside MXC.
+Startup probes MXC support and checks the shell; failure stops execution rather than
+silently dropping containment. Explicit `sandbox.backend: none` remains an opt-in.
+Windows Terminal shows taskbar/tab progress while working and a warning state while
+waiting for input. Set `CLEETUS_TERMINAL_PROGRESS=0` to disable it.
+See [Windows support](docs/windows.md) for build commands, testing, Terminal integration,
+and current limitations. WSL remains available as a separate Linux environment.
+Run `cleetus doctor --windows` to check prerequisites and native enforcement, or add
+`--quick` to skip synthetic enforcement tests. The [recommended tools list](docs/windows.md#required-and-recommended-tools)
+distinguishes Cleetus prerequisites from project-specific toolchains. First-run setup
+checks required Windows prerequisites before provider discovery.
 
 ```yaml
 # config.yaml

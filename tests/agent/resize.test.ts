@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { writeFileSync } from "node:fs";
+import { readImageDimensions } from "../../src/agent/image-dimensions";
 import { resizeImage } from "../../src/agent/resize";
 
 const ORIG = Buffer.from("original-bytes");
@@ -16,6 +17,16 @@ function pngHeader(w: number, h: number): Buffer {
 }
 
 describe("resizeImage", () => {
+  it("resizes and encodes a real image with Jimp's schema validation", async () => {
+    const { Jimp } = await import("jimp");
+    const input = await new Jimp({ width: 80, height: 40, color: 0xff0000ff }).getBuffer(
+      "image/png",
+    );
+    const result = await resizeImage(input, "image/png", 20, { platform: "linux" });
+    expect(result.error).toBeUndefined();
+    expect(result.bytes).toBeDefined();
+    expect(readImageDimensions(result.bytes!, "image/png")).toEqual({ width: 20, height: 10 });
+  });
   it("uses sips on darwin and returns its output", async () => {
     let reachedJimp = false;
     const r = await resizeImage(ORIG, "image/png", 1568, {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { join } from "node:path";
 import { renderArtifactGrounding, renderEnvironment } from "../../src/agent/environment";
 
 describe("renderEnvironment", () => {
@@ -70,7 +71,7 @@ describe("renderArtifactGrounding", () => {
 
   it("names <home>/artifacts", () => {
     const out = renderArtifactGrounding("/Users/example/acme");
-    expect(out).toContain("/Users/example/acme/artifacts");
+    expect(out).toContain(join("/Users/example/acme", "artifacts"));
     expect(out).toContain("shared across all chats and terminals");
   });
 });

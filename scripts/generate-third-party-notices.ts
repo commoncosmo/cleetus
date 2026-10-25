@@ -287,7 +287,7 @@ function render(runtime: Notice[], cli: Notice[]): string {
       `${notice.id}`,
       `License: ${notice.license}${source}`,
       "-".repeat(80),
-      notice.text,
+      notice.text.replace(/\r\n/g, "\n"),
     ].join("\n");
   });
 
@@ -330,7 +330,7 @@ function printNoticeDifference(existing: string, rendered: string): void {
 
 const rendered = render(runtimeNotices(), await cliNotices());
 if (process.argv.includes("--check")) {
-  const existing = await Bun.file(outputPath).text();
+  const existing = (await Bun.file(outputPath).text()).replace(/\r\n/g, "\n");
   if (existing !== rendered) {
     console.error("THIRD_PARTY_NOTICES.txt is stale. Run `bun run licenses`.");
     printNoticeDifference(existing, rendered);

@@ -34,6 +34,7 @@ import type { AcpSessions } from "./session";
 import type { AcpSessionConfigController, ActiveAcpSessionHolder } from "./session-config";
 import { AcpSandbox } from "./terminal-sandbox";
 import type { AcpTransport } from "./transport";
+import type { ClientRequestOptions } from "./transport";
 import { AcpTurnQueue } from "./turn-queue";
 import {
   type WorkflowAuthorizationRouter,
@@ -74,6 +75,7 @@ function sessionModeState(modeId: string): {
 }
 
 export interface SessionMethodDeps {
+  shellExecutable?: string;
   runtime: AgentRuntime;
   log: EventLog;
   sessions: AcpSessions;
@@ -142,7 +144,7 @@ export interface SessionMethodDeps {
 export function registerSessionMethods(
   transport: AcpTransport,
   deps: SessionMethodDeps,
-): { shutdownMcp: () => Promise<void> } {
+): { shutdownMcp: () => Promise<void>; cancelAll: () => void } {
   const {
     runtime,
     log,
@@ -374,6 +376,7 @@ export function registerSessionMethods(
       } finally {
         projectContext?.reset();
         if (activeSessionHolder) activeSessionHolder.current = null;
+        if (sandboxHolder && fallbackSandbox) sandboxHolder.current = fallbackSandbox;
       }
     });
   });
@@ -456,7 +459,8 @@ export function registerSessionMethods(
           // Install a per-turn FileBridge routing reads/writes through the client when the client
           // advertised the matching fs capability.
           const caps = clientCapsRef.current;
-          const requestFn = (m: string, p: unknown) => transport.request(m, p);
+          const requestFn = (m: string, p: unknown, options?: ClientRequestOptions) =>
+            transport.request(m, p, options);
           const supportsRead = clientSupportsFsRead(caps);
           const supportsWrite = clientSupportsFsWrite(caps);
           if (supportsRead || supportsWrite) {
@@ -477,7 +481,14 @@ export function registerSessionMethods(
             process.stderr.write(
               `[cleetus/acp] sandbox bypass: routing command execution through client terminal for session ${sessionId}\n`,
             );
-            sandboxHolder.current = new AcpSandbox(requestFn, sessionId, fallbackSandbox);
+            sandboxHolder.current = new AcpSandbox(
+              requestFn,
+              sessionId,
+              fallbackSandbox,
+              process.platform,
+              sessionCwd,
+              deps.shellExecutable,
+            );
           }
 
           await projectContext?.activate(sessionCwd);
@@ -579,6 +590,7 @@ export function registerSessionMethods(
           unsub();
           // Reset to safe defaults before the FIFO admits the next turn.
           projectContext?.reset();
+          if (sandboxHolder?.current instanceof AcpSandbox) await sandboxHolder.current.dispose();
           permissionRouter.current = async () => "deny";
           if (workflowAuthorizationRouter) {
             workflowAuthorizationRouter.current = async () => "deny";
@@ -602,6 +614,9 @@ export function registerSessionMethods(
   });
 
   return {
+    cancelAll: () => {
+      for (const controller of abortControllers.values()) controller.abort();
+    },
     shutdownMcp: async () => {
       const all = [...mcpManagers.values()].flat();
       mcpManagers.clear();

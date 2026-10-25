@@ -169,13 +169,13 @@ describe("resolveToolTargetPath", () => {
     const dir = await mkdtemp(join(tmpdir(), "cleetus-pg-"));
     const root = await realpath(dir);
     expect(await resolveToolTargetPath("edit_file", { path: "a/b.ts" }, dir)).toBe(
-      `${root}/a/b.ts`,
+      join(root, "a", "b.ts"),
     );
     expect(await resolveToolTargetPath("write_file", { path: `${dir}/c.ts` }, dir)).toBe(
-      `${root}/c.ts`,
+      join(root, "c.ts"),
     );
     expect(await resolveToolTargetPath("multi_edit", { path: "d/e.ts" }, dir)).toBe(
-      `${root}/d/e.ts`,
+      join(root, "d", "e.ts"),
     );
     expect(await resolveToolTargetPath("bash", { command: "ls" }, dir)).toBeNull();
     expect(await resolveToolTargetPath("edit_file", {}, dir)).toBeNull();
@@ -185,7 +185,7 @@ describe("resolveToolTargetPath", () => {
     const dir = await mkdtemp(join(tmpdir(), "cleetus-pg-"));
     const patch = "*** Begin Patch\n*** Update File: a/b.ts\n-x\n+y\n*** End Patch";
     expect(await resolveToolTargetPath("apply_patch", { patch }, dir)).toBe(
-      `${await realpath(dir)}/a/b.ts`,
+      join(await realpath(dir), "a", "b.ts"),
     );
     await rm(dir, { recursive: true, force: true });
   });

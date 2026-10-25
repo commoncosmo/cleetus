@@ -84,7 +84,7 @@ describe("BUILTIN_SKILLS", () => {
 describe("built-in skill triggers", () => {
   it("test-driven-development auto-triggers on coding tasks", () => {
     const tdd = BUILTIN_SKILLS.find((s) => s.name === "test-driven-development");
-    expect(tdd?.trigger).toEqual({ when: ["coding-task"], match: [] });
+    expect(tdd?.trigger).toEqual({ when: ["testable-coding-task"], match: [] });
   });
   it("security-scan has no trigger (manual only)", () => {
     const sec = BUILTIN_SKILLS.find((s) => s.name === "security-scan");

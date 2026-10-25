@@ -171,8 +171,16 @@ export async function* chatOpenAI(
       signal: req.signal,
     });
   } catch (e) {
+    if (req.signal?.aborted) throw req.signal.reason ?? e;
+    const code =
+      (e as { code?: string; cause?: { code?: string } })?.code ??
+      (e as { cause?: { code?: string } })?.cause?.code;
     throw new CleetusError("PROVIDER_UNREACHABLE", `chat failed: ${(e as Error).message}`, {
       cause: e,
+      retryable:
+        /^(ECONNRESET|ECONNREFUSED|EPIPE|ETIMEDOUT|UND_ERR_SOCKET|UND_ERR_CONNECT_TIMEOUT)$/.test(
+          code ?? "",
+        ),
     });
   }
   if (!res.ok || !res.body) {

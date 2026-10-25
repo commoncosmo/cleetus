@@ -396,6 +396,21 @@ test("incrementalProgressTokens ignores repeated full context and counts growth 
 });
 
 test("verificationCommandKey tracks quality commands but ignores exploratory bash", () => {
+  expect(verificationCommandKey("bash", { command: "npm test" })).toBe("bash:npm run test");
+  expect(verificationEvidence("bash", { command: "npm test" })).toBe("test");
+  expect(verificationCommandKey("bash", { command: "npx --no-install vitest run" })).toBe(
+    "bash:npx vitest run",
+  );
+  expect(verificationCommandKey("bash", { command: "npm run build 2>&1 | tail -12" })).toBe(
+    "bash:npm run build",
+  );
+  expect(
+    verificationCommandKey("bash", {
+      command: "npx vitest run --reporter=verbose 2>&1 | tail -20",
+    }),
+  ).toBe("bash:npx vitest run");
+  expect(verificationEvidence("bash", { command: "npx vitest run" })).toBe("test");
+  expect(verificationEvidence("bash", { command: "npm run test" })).toBe("test");
   expect(verificationCommandKey("run_tests", {})).toBe("run_tests:full");
   expect(verificationCommandKey("run_tests", { filter: "alt-tui" })).toBe("run_tests:alt-tui");
   expect(verificationCommandKey("smoke_run", { command: "cleetus --tui alt" })).toBe(
@@ -425,7 +440,57 @@ test("verificationCommandKey tracks quality commands but ignores exploratory bas
   );
 });
 
+test("PowerShell's preserved native status records npm verification despite trailing logging", async () => {
+  for (const preserved of [false, true]) {
+    let calls = 0;
+    const provider: Provider = {
+      listModels: async () => [{ id: "m" }],
+      embed: async () => [0],
+      async *chat() {
+        if (calls++ === 0) {
+          yield {
+            type: "tool-call",
+            call: {
+              id: "verify",
+              name: "bash",
+              args: { command: "npx vitest run > test_out.txt; echo DONE" },
+            },
+          };
+          yield { type: "finish", reason: "tool-calls" };
+          return;
+        }
+        yield { type: "text-delta", text: "Done." };
+        yield { type: "finish", reason: "stop" };
+      },
+    };
+    const runtime = makeRuntime(provider, 0, {
+      extraTools: [
+        {
+          ...stubBash,
+          run: async () => ({
+            ok: true,
+            output: "Tests 3 passed (3)",
+            exitStatusPreserved: preserved,
+          }),
+        },
+      ],
+    });
+    const result = await runtime.runTurn(`preserved-${preserved}`, "verify");
+    const check = result.verificationResults?.find((check) => check.key === "bash:npx vitest run");
+    expect(check?.ok).toBe(preserved);
+    expect(check?.evidence).toBe("test");
+  }
+});
+
 test("render_check key includes the assertion so a changed expectation re-runs", () => {
+  const launch = {
+    launchCommand: "npm run dev",
+    url: "http://localhost:5173",
+    expectedText: "ct4",
+  };
+  expect(
+    verificationCommandKey("render_check", { ...launch, command: "npx playwright test" }),
+  ).toBe(verificationCommandKey("render_check", launch));
   const base = { launchCommand: "bun run dev -- --port 5173", url: "http://localhost:5173/chat" };
   const a = verificationCommandKey("render_check", { ...base, expectedText: "No threads yet." });
   const b = verificationCommandKey("render_check", {

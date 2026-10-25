@@ -1,5 +1,5 @@
+import { execProgram } from "../sandbox/program";
 import type { Sandbox } from "../sandbox/types";
-import { shellJoin } from "./quote";
 
 export interface GitRunResult {
   exitCode: number | null;
@@ -24,11 +24,12 @@ async function runBin(
   ctx: GitRunContext,
   opts?: { timeoutMs?: number },
 ): Promise<GitRunResult> {
-  const r = await sandbox.exec(shellJoin([bin, ...argv]), {
+  const options = {
     cwd: ctx.projectDir,
     signal: ctx.abortSignal,
     timeoutMs: opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-  });
+  };
+  const r = await execProgram(sandbox, [bin, ...argv], options);
   return {
     exitCode: r.exitCode,
     stdout: r.stdout,

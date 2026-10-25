@@ -1,7 +1,7 @@
 import type { Dirent } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { $ } from "bun";
+import { spawnCollect } from "../sandbox/spawn";
 
 export const MAX_FILE_BYTES = 262_144;
 export const BINARY_SNIFF_BYTES = 8_192;
@@ -9,7 +9,15 @@ const GLOB_IGNORE = new Set(["node_modules", ".git", "dist", "build", ".cleetus"
 
 async function gitFiles(projectDir: string): Promise<string[] | null> {
   try {
-    const out = await $`git ls-files -z`.cwd(projectDir).quiet().text();
+    // Do not inherit ACP's protocol stdin. A failed or stalled Git must also not
+    // hold session initialization open indefinitely.
+    const result = await spawnCollect(["git", "ls-files", "-z"], {
+      cwd: projectDir,
+      signal: new AbortController().signal,
+      timeoutMs: 5000,
+    });
+    if (result.exitCode !== 0 || result.timedOut) return null;
+    const out = result.stdout;
     if (!out) return [];
     return out.split("\0").filter((p) => p.length > 0);
   } catch {

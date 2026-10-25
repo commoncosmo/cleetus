@@ -2,12 +2,17 @@
 name: test-driven-development
 description: "Drive a change test-first: write a failing test, run it focused with run_tests, then the minimal code to pass it; scaffold a runner if the stack makes it cheap"
 trigger:
-  when: coding-task
+  when: testable-coding-task
 scope: decompose
 ---
 
 You are running the **test-driven-development** skill: drive this change with a failing test
 first, then the minimal code to make it pass.
+
+For a scaffold-only request, stop this skill immediately: do not add a test runner,
+test dependencies, or invented UI behavior. Verify the generated template with its
+build and render_check. Examples below are illustrations, never feature requirements.
+Use the project's selected package manager consistently for installation and scripts.
 
 **The loop (red → green → refactor):**
 1. Write or extend ONE test that captures the desired behavior and currently FAILS for the
@@ -38,10 +43,10 @@ proves the whole app actually renders in a browser.
   `"test": "vitest run"` script to package.json, and write `foo.test.ts`.
 - **React / Vite component test:** `bun add -d vitest @vitejs/plugin-react happy-dom
   @testing-library/react @testing-library/dom`. In `vite.config.ts` add
-  `test: { environment: "happy-dom", globals: true }` (import `/// <reference types="vitest" />`
-  at the top), add a `"test": "vitest run"` script, then write `App.test.tsx`:
+  `test: { environment: "happy-dom", globals: true }` (use `defineConfig` from `vitest/config`
+  so TypeScript recognizes the test property), add a `"test": "vitest run"` script, then write `App.test.tsx`:
   `import { render, screen } from "@testing-library/react";` → `render(<App/>);` →
-  `expect(screen.getByRole("button", { name: /new thread/i })).toBeDefined();`. Run
+  assert the actual user-requested behavior. Never copy an example button or feature into the app merely to satisfy a token test. Run
   `bun run test -- -t <name>` to focus. happy-dom keeps it deterministic and headless (no browser).
 - Python: ensure `pytest` is available, write `test_foo.py`, run `pytest -k <name>`.
 If the stack has no one-step runner, do not fabricate a harness — fall back to build/smoke_run

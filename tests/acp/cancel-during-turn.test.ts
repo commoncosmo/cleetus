@@ -93,7 +93,7 @@ async function waitFor<T>(fn: () => T | undefined, ms = 2000): Promise<T> {
 }
 
 describe("session/cancel during a streaming turn (driven through pumpStdin)", () => {
-  it("aborts the in-flight turn instead of waiting for it to finish naturally", async () => {
+  it.each(["notification", "disconnect"])("aborts the in-flight turn on %s", async (reason) => {
     const out: {
       id?: number;
       method?: string;
@@ -114,7 +114,7 @@ describe("session/cancel during a streaming turn (driven through pumpStdin)", ()
       resolvePermission: async () => "deny",
       maxToolLoops: 4,
     });
-    registerSessionMethods(transport, {
+    const { cancelAll } = registerSessionMethods(transport, {
       runtime,
       log,
       sessions: new AcpSessions(),
@@ -122,7 +122,10 @@ describe("session/cancel during a streaming turn (driven through pumpStdin)", ()
     });
 
     const { stream, push, close } = pushableStream();
-    const pump = pumpStdin(transport, stream); // run the real read loop in the background
+    const pump = pumpStdin(transport, stream, () => {
+      cancelAll();
+      transport.close();
+    });
 
     push(
       `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "session/new", params: { cwd: dir } })}\n`,
@@ -137,9 +140,11 @@ describe("session/cancel during a streaming turn (driven through pumpStdin)", ()
     );
     // ...let it register its AbortController, then cancel mid-turn (a notification, no id).
     await new Promise((r) => setTimeout(r, 20));
-    push(
-      `${JSON.stringify({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId } })}\n`,
-    );
+    if (reason === "disconnect") close();
+    else
+      push(
+        `${JSON.stringify({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId } })}\n`,
+      );
 
     // With the bug, pumpStdin is parked on `await handleLine(promptLine)` and never reads the
     // cancel, so the prompt response never arrives and this times out. With the fix it cancels.

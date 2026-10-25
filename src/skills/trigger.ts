@@ -5,7 +5,22 @@ import type { Skill } from "./types";
  *  Extend by adding entries; an unknown key is simply never matched. */
 const NAMED_PREDICATES: Record<string, (userInput: string) => boolean> = {
   "coding-task": isCodingTask,
+  "testable-coding-task": (input) => isCodingTask(input) && !isScaffoldOnlyTask(input),
 };
+
+/** Bootstrap/configuration alone has no new behavior to pin with a unit test. Mixed
+ * requests that explicitly ask for behavior still engage TDD. */
+export function isScaffoldOnlyTask(input: string): boolean {
+  const setup =
+    /\b(?:scaffold(?:ed|ing)?|bootstrap|initiali[sz]e|set\s?up|vite|create-(?:vite|react-app|next-app))\b/i.test(
+      input,
+    );
+  const behavior =
+    /\b(?:implement|fix|debug|parser|reducer|authentication|login|validation|interactive|click|submit|persist|search|filter|sort|counter|rate limit|tests?|test suite)\b/i.test(
+      input,
+    );
+  return setup && !behavior;
+}
 
 function sourceRank(source: Skill["source"]): number {
   if (source === "project") return 3;

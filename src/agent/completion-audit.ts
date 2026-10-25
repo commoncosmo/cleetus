@@ -42,7 +42,7 @@ export function completionAuditInspectionPath(
   if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
     return null;
   }
-  return normalize(rel);
+  return normalize(rel).split(sep).join("/");
 }
 
 export function completionAuditScopeBlock(
@@ -53,7 +53,8 @@ export function completionAuditScopeBlock(
 ): string | null {
   if (!AUDIT_PATH_TOOLS.has(tool)) return null;
   const path = completionAuditInspectionPath(tool, args, projectDir);
-  if (path && allowedPaths.has(path)) return null;
+  if (path && [...allowedPaths].some((allowed) => normalize(allowed).split(sep).join("/") === path))
+    return null;
   return "The completion audit is limited to files changed or already inspected during this turn. Do not reopen unrelated files or specifications from earlier work; finalize from current evidence, or qualify the remaining claim.";
 }
 
@@ -351,6 +352,7 @@ export function completionAuditReminder(args: {
     );
   }
   sections.push(
+    "Reserve the final four tool attempts for one concrete repair and its necessary verification. Do not spend the audit rereading every file. Reuse current file snapshots and passing checks. A requested edit is not an executed edit: never claim a rejected, blocked, or failed tool call changed a file. For navigation, exercise the link and verify the destination content; initial-page text alone does not establish routing.",
     "When the audit is complete, provide a concise final summary that clearly separates verified facts from limitations. Do not merely restate the draft.",
   );
   return `<system-reminder>${sections.join("\n\n")}</system-reminder>`;

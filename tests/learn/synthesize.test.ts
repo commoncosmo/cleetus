@@ -71,6 +71,20 @@ function response(body?: string): string {
 }
 
 describe("synthesizePlaybook", () => {
+  it("removes source-run evidence from future success checks without removing performance requirements", async () => {
+    const draft = await synthesizePlaybook({
+      provider: new FakeProvider(
+        response(
+          "## Success checks\n- Run the forecast retrieval and check success.\n- Recorded evidence: the build completed in 572ms.\n- Complete retrieval within 5000ms.\n- Use protocol version 2.",
+        ),
+      ),
+      model: "m",
+      turn,
+    });
+    expect(draft.body).not.toContain("572ms");
+    expect(draft.body).toContain("within 5000ms");
+    expect(draft.body).toContain("version 2");
+  });
   it("returns a normalized, grounded draft with narrow triggers", async () => {
     const provider = new FakeProvider(response());
     const draft = await synthesizePlaybook({ provider, model: "m", turn });
