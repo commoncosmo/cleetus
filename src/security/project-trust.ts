@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { parse as parseYaml } from "yaml";
+import { userPaths } from "../config/user-paths";
 import { shellQuote } from "../git/quote";
 import { CleetusError } from "../lib/errors";
 import { realpathWithMissingParents } from "../permission/path-guard";
@@ -72,9 +72,7 @@ export function projectTrustCommand(opts: ProjectTrustOptions): string {
   if (opts.trustGlobalWorkspace) {
     const configDir = resolve(dirname(opts.globalPath));
     const configFlag =
-      configDir === join(homedir(), ".config", "cleetus")
-        ? ""
-        : ` --config-dir ${shellQuote(configDir)}`;
+      configDir === userPaths().configRoot ? "" : ` --config-dir ${shellQuote(configDir)}`;
     return `cleetus trust --global${configFlag} --yes`;
   }
   return `cleetus trust --directory ${shellQuote(resolve(opts.projectDir))} --config-dir ${shellQuote(resolve(dirname(opts.globalPath)))} --yes`;

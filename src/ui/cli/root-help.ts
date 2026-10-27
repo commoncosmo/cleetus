@@ -1,5 +1,6 @@
 export const ROOT_COMMAND_HELP = `
 Standalone commands:
+  migrate-data                    preview or migrate legacy Windows user data
   doctor --windows                check Windows prerequisites and native sandbox enforcement
   trust                           review and approve project configuration before it can run code
   workflow [command]              initialize, inspect, validate, test, and run strict workflows

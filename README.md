@@ -98,6 +98,17 @@ macOS, it then ad-hoc re-signs the local copy so macOS does not reject the
 copied Mach-O at launch. If `~/.local/bin` is not on your `PATH`, the installer
 prints the line to add.
 
+Windows (x64 / ARM64), from Windows PowerShell 5.1 or PowerShell 7:
+
+```powershell
+irm https://raw.githubusercontent.com/commoncosmo/cleetus/main/install.ps1 | iex
+```
+
+The Windows installer verifies the ZIP checksum and installs the complete package to
+`%LOCALAPPDATA%\Programs\Cleetus\bin`, adding that directory to user PATH. No admin,
+Bun, Node, or Git installation is required. Unpackaged PowerShell 7.4+ is required
+for native sandboxing after installation. See [Windows installation, migration, and portable mode](docs/windows.md#installation-and-user-data).
+
 The Quickstart below is for developing cleetus from source.
 
 ## Quickstart

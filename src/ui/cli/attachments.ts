@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { gcAttachments } from "../../agent/attachment-gc";
 import { ensureParentDir, resolveSessionDbPath } from "../../agent/session-db-path";
 import { SessionHistoryStore } from "../../agent/session-history";
+import { resolveConfigRoot } from "../../config/config-root";
 import { loadConfig } from "../../config/loader";
 import { openDatabase } from "../../lib/db";
 
@@ -20,7 +21,7 @@ export async function runAttachments(argv: string[], cwd: string, io: Io): Promi
   }
   const dryRun = argv.includes("--dry-run");
   // Global config path mirrors cleetus.ts/analyze.ts (a module-local const, not exported from anywhere).
-  const GLOBAL_CONFIG = join(homedir(), ".config", "cleetus", "config.yaml");
+  const GLOBAL_CONFIG = join(resolveConfigRoot(undefined, homedir(), process.cwd()), "config.yaml");
   const config = await loadConfig({ globalPath: GLOBAL_CONFIG, projectDir: cwd });
 
   const dbPath = resolveSessionDbPath(cwd);

@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, parse, resolve } from "node:path";
+import { userPaths } from "../config/user-paths";
 import { secretDirPaths, secretFilePaths } from "../security/secret-paths";
 import { CLEETUS_SANDBOX_ACTIVE_ENV } from "./host";
 import { resolvePowerShell } from "./powershell";
@@ -78,6 +79,11 @@ export class WindowsSandbox implements Sandbox {
     const protectedPaths = opts.protectProjectMetadata
       ? [join(project, ".git"), join(project, ".cleetus")]
       : [];
+    const paths = userPaths(this.home);
+    const portablePaths =
+      paths.mode === "portable"
+        ? [dirname(process.execPath), paths.dataRoot, join(paths.installRoot, "cleetus.portable")]
+        : [];
     const cachePaths = [
       ".npm",
       ".cache",
@@ -138,6 +144,7 @@ export class WindowsSandbox implements Sandbox {
           ...roots,
           dirname(this.executor),
           process.execPath,
+          ...portablePaths.filter(existsSync),
           ...protectedPaths.filter(existsSync),
         ],
         deniedPaths: [...secretDirPaths(home), ...secretFilePaths(home)].filter(existsSync),

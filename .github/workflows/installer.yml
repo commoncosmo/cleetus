@@ -4,11 +4,13 @@ on:
   push:
     paths:
       - "install.sh"
+      - "install.ps1"
       - "tests/installer/**"
       - ".github/workflows/installer.yml"
   pull_request:
     paths:
       - "install.sh"
+      - "install.ps1"
       - "tests/installer/**"
       - ".github/workflows/installer.yml"
 
@@ -28,3 +30,23 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y bats=1.10.0-1
       - name: Run installer tests
         run: bats tests/installer/
+
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2025
+            shell: powershell
+          - runner: windows-2025
+            shell: pwsh
+          - runner: windows-11-arm
+            shell: pwsh
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Installer regression tests (no network or user PATH changes)
+        shell: ${{ matrix.shell }}
+        run: ./tests/installer/windows.ps1

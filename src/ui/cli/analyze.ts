@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Command } from "commander";
+import { resolveConfigRoot } from "../../config/config-root";
 import { loadConfig } from "../../config/loader";
 import type { EventSource } from "../../events/log";
 import { explainReport, selectSamples } from "../../insights/explain";
@@ -91,7 +92,10 @@ export async function runAnalyze(
 
   if (o.explain) {
     // Global config path mirrors cleetus.ts (a module-local const there, not exported).
-    const GLOBAL_CONFIG = join(homedir(), ".config", "cleetus", "config.yaml");
+    const GLOBAL_CONFIG = join(
+      resolveConfigRoot(undefined, homedir(), process.cwd()),
+      "config.yaml",
+    );
     const config = await loadConfig({ globalPath: GLOBAL_CONFIG, projectDir });
     const providerName = config.defaultProvider ?? Object.keys(config.providers)[0]; // insertion-order fallback, mirrors cleetus.ts startup
     const model = o.model ?? config.defaultModel;

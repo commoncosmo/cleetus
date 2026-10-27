@@ -65,6 +65,7 @@ import {
   reapStaleScratchDirs,
   registerScratchCleanup,
 } from "../config/scratch-lifecycle";
+import { userPaths } from "../config/user-paths";
 import { buildDiagnosticsManager } from "../diagnostics/index";
 import { launchEditor } from "../editor/launch";
 import {
@@ -179,6 +180,7 @@ import type { JsonObject, JsonSchema } from "../workflows/types";
 import { makeCrashHandler } from "./crash-handler";
 
 interface ProgramOptions {
+  printUserPaths?: boolean;
   provider?: string;
   model?: string;
   fuckit?: boolean;
@@ -214,6 +216,10 @@ interface ProgramOptions {
 }
 
 async function main(argv: string[]): Promise<number> {
+  if (argv[2] === "migrate-data") {
+    const { runMigrateData } = await import("../ui/cli/migrate-data");
+    return runMigrateData(argv);
+  }
   if (argv[2] === "doctor") {
     const { runDoctor } = await import("../ui/cli/doctor");
     return runDoctor(argv, process.cwd(), {
@@ -327,17 +333,24 @@ async function main(argv: string[]): Promise<number> {
       "--session-db <path>",
       "use a specific session database file (overrides the per-directory default)",
     )
-    .option("--config-dir <path>", "use a specific config directory (default ~/.config/cleetus)")
+    .option(
+      "--config-dir <path>",
+      "override the user data/config directory (see doctor for platform defaults)",
+    )
     .option(
       "--project-dir <path>",
       "project-home scope anchor (memory/instructions/artifacts), distinct from cwd",
     )
-    .option("--global", "operate against the persistent global workspace (default ~/.cleetus)")
+    .option("--global", "operate against the persistent global workspace")
     .option("--scratch", "operate against a fresh ephemeral directory, deleted on exit")
     .option("--no-project-instructions", "do not inherit the project's instructions")
     .option("--no-project-memory", "do not inherit the project's memory")
     .option("--fork <id>", "start a new session branched from an existing one")
     .option("--list-models", "list models from all configured providers and exit")
+    .option(
+      "--print-user-paths",
+      "print user data paths as JSON without starting providers or sandboxing",
+    )
     .option("--json", "with --list-models, output the catalog as JSON")
     .version(version)
     .addHelpText("after", ROOT_COMMAND_HELP)
@@ -345,6 +358,20 @@ async function main(argv: string[]): Promise<number> {
 
   program.parse(argv);
   const opts = program.opts<ProgramOptions>();
+  if (opts.printUserPaths) {
+    const paths = userPaths();
+    console.log(
+      JSON.stringify({
+        ...paths,
+        layoutVersion: 1,
+        configRoot:
+          paths.conflict && !opts.configDir
+            ? null
+            : resolveConfigRoot(opts.configDir, homedir(), process.cwd()),
+      }),
+    );
+    return 0;
+  }
   const promptArg = program.args.join(" ").trim();
 
   const launchCwd = realpathSync(process.cwd());
