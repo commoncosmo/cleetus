@@ -50,7 +50,7 @@
     "hono": "4.13.11",
     "ip-address": "10.7.5",
     "proxy-addr": "2.0.8",
-    "qs": "6.16.0",
+    "qs": "6.16.1",
     "zod": "4.6.7"
   },
   "devDependencies": {
