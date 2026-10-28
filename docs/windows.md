@@ -2,6 +2,98 @@
 
 For editor integration, see [ACP setup and execution boundaries](acp.md).
 
+## Installation and user data
+
+Bootstrap from Windows PowerShell 5.1 or PowerShell 7:
+
+```powershell
+irm https://raw.githubusercontent.com/commoncosmo/cleetus/main/install.ps1 | iex
+```
+
+The script resolves the release tag once, verifies the selected x64/ARM64 ZIP
+against that release's SHA-256 manifest, and preserves the complete MXC runtime
+and notices. It installs without elevation, updates user and current-session
+PATH, checks the executable version, and runs the quick doctor. Other open
+terminals and editors need restarting to inherit PATH. An older command or alias
+that shadows the installation is reported. The script does not install project
+toolchains or change execution policy, Defender, or App Control settings.
+
+| Location | Purpose |
+| --- | --- |
+| `%LOCALAPPDATA%\Programs\Cleetus\bin` | Executable, MXC runtime, and notices; managed by the installer |
+| `%LOCALAPPDATA%\Cleetus` | Default global configuration, state, memories, recovery data, and caches |
+| `%LOCALAPPDATA%\Cleetus\workspace` | Default `--global` workspace |
+| `<project>\.cleetus` | Project configuration and history; stays with its project |
+
+`CLEETUS_VERSION` selects a version such as `0.6.0`. `CLEETUS_INSTALL_DIR` selects
+the application prefix (the script creates `bin` inside it). Script parameters
+can also be passed explicitly:
+
+```powershell
+$installer = irm https://raw.githubusercontent.com/commoncosmo/cleetus/main/install.ps1
+& ([scriptblock]::Create($installer)) -Version 0.6.0 -InstallDir 'D:\Apps\Cleetus' -NoPath
+```
+
+`-NoPath` leaves user and current PATH unchanged. `-SkipDoctor` skips the
+post-install prerequisite report. Re-running the installer upgrades its managed
+`bin` directory after staging and validation; data outside `bin` is preserved.
+Close Cleetus and its child processes first. Locked executables cause a clear
+failure before replacement, and failed directory replacement restores the old
+`bin`. An existing unrelated `bin` directory is never taken over. Keep personal
+files outside the managed `bin` directory.
+
+### Migrating existing Windows installations
+
+Existing `~/.config/cleetus` data remains active until explicitly migrated. If
+only the legacy default `~/.cleetus` workspace exists, it is also retained until
+migration. The doctor reports effective paths and legacy-mode guidance.
+`cleetus --print-user-paths` prints path information as JSON without loading
+providers or starting a sandbox.
+
+```powershell
+cleetus migrate-data          # preview only
+# Close every other Cleetus instance, including editor ACP agents, before applying:
+cleetus migrate-data --yes
+```
+
+Migration renames the complete config tree, including SQLite sidecars, to the
+native data root and moves the old default workspace beneath `workspace`.
+Explicitly configured custom workspaces and project-local data remain unchanged.
+Global-workspace trust can require approval again after the path changes. Failed
+moves are rolled back. Migration refuses populated destinations, linked source roots,
+and cross-volume moves that cannot be performed safely. It never merges data.
+While migration runs, a lock blocks new default-path sessions; after an interrupted
+migration, inspect the reported lock and both paths before manually removing a
+stale lock. Older Cleetus processes do not honor the new lock, so they must be
+closed before migration.
+
+When both old and new roots contain files, choose the intended root with
+`--config-dir` and reconcile them deliberately. Explicit `--config-dir` always
+wins. Linux and macOS keep their existing defaults.
+
+### Portable mode
+
+```powershell
+$installer = irm https://raw.githubusercontent.com/commoncosmo/cleetus/main/install.ps1
+& ([scriptblock]::Create($installer)) -Portable -InstallDir 'D:\Portable\Cleetus' -NoPath
+```
+
+The installer creates `cleetus.portable` at the application prefix. The layout is
+`bin\cleetus.exe`, `bin\native\...`, and `data\...`. Portable configuration,
+state, recovery data, and the default `data\workspace` follow that prefix when
+the folder is moved, and upgrades preserve `data`. For a manually extracted ZIP,
+place an empty `cleetus.portable` beside `cleetus.exe`; its `data` folder is adjacent.
+`CLEETUS_PORTABLE=1` also enables portable mode; `CLEETUS_PORTABLE=0` overrides a
+marker for the current process. Explicit config/workspace overrides still apply.
+Portable mode does not import machine data automatically. OS temporary files,
+project data, and external tool caches retain their own locations.
+
+These installer and path behaviors require a build containing this change;
+the previously published 0.6.0 binary retains the older config-path behavior.
+Normal installs of older releases remain supported. Portable installs and
+downgrades require the executable to confirm portable-path support before the
+installer replaces anything; this prevents older binaries from ignoring the marker.
+
 Native Windows execution uses MXC ProcessContainer, via the pinned 1.0.1 standalone
 executor. The Node SDK is a build dependency only: the compiled CLI does not load
 Koffi or require Node/Bun to be installed. An unpackaged PowerShell 7.4 or later
@@ -42,7 +134,8 @@ does not silently substitute another installation or weaken containment.
 
 Install Git from the [Git for Windows installation page](https://git-scm.com/install/windows).
 Open a new terminal after installations so PATH changes are visible. Cleetus does
-not automatically install tools, enable Windows features, or change PATH.
+not automatically install tools or enable Windows features. Only the bootstrap
+installer adds its own `bin` directory to PATH.
 
 Project runtimes are separate from Cleetus's embedded runtime:
 

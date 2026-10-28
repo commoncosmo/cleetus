@@ -2,6 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { SCRATCH_PREFIX } from "./scratch-lifecycle";
+import { type UserPathOptions, userPaths } from "./user-paths";
 
 export type LaunchKind = "project" | "global" | "scratch";
 
@@ -31,12 +32,17 @@ export interface ResolveLaunchScopeInput {
   globalWorkspaceDir?: string;
   /** Injected for testability; defaults to a fresh mkdtemp under os.tmpdir(). */
   makeScratchDir?: () => string;
+  userPathOptions?: UserPathOptions;
 }
 
 /** Turn a configured global_workspace_dir into an absolute path: `~`/`~/x` expand to home, a
  *  relative path resolves against home, an absolute path is used as-is. Unset → ~/.cleetus. */
-function resolveGlobalDir(configured: string | undefined, home: string): string {
-  if (!configured) return join(home, ".cleetus");
+function resolveGlobalDir(
+  configured: string | undefined,
+  home: string,
+  options?: UserPathOptions,
+): string {
+  if (!configured) return userPaths(home, options).workspaceRoot;
   if (configured === "~") return home;
   if (configured.startsWith("~/")) return join(home, configured.slice(2));
   return isAbsolute(configured) ? configured : join(home, configured);
@@ -52,7 +58,7 @@ export function resolveLaunchScope(input: ResolveLaunchScopeInput): LaunchScope 
   if (input.global) {
     return {
       kind: "global",
-      dir: resolveGlobalDir(input.globalWorkspaceDir, input.home),
+      dir: resolveGlobalDir(input.globalWorkspaceDir, input.home, input.userPathOptions),
       ephemeral: false,
       defaultMemoryScope: "global",
       label: "global",

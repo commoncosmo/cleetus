@@ -49,12 +49,15 @@ export function parseAcpOptions(argv: string[]): AcpCliOptions {
     .option("--personality <id>", "voice overlay: neutral | cleetus | bofh")
     .option("--effort <level>", "reasoning effort: low | medium | high")
     .option("--instructions <path>", "load a system-prompt instructions file from an explicit path")
-    .option("--config-dir <path>", "use a specific config directory (default ~/.config/cleetus)")
+    .option(
+      "--config-dir <path>",
+      "override the user data/config directory (see doctor for platform defaults)",
+    )
     .option(
       "--project-dir <path>",
       "project-home scope anchor (memory/instructions/artifacts), distinct from cwd",
     )
-    .option("--global", "operate against the persistent global workspace (default ~/.cleetus)")
+    .option("--global", "operate against the persistent global workspace")
     .option("--scratch", "operate against a fresh ephemeral directory, deleted on exit")
     .option(
       "--no-project-instructions",

@@ -7,6 +7,7 @@ import {
 } from "../../src/config/launch-scope";
 
 const base = {
+  userPathOptions: { platform: "linux" as const, env: {} },
   cwd: "/work/proj",
   home: "/home/tester",
   makeScratchDir: () => "/tmp/cleetus-scratch-XXXX",

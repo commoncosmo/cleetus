@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { Command } from "commander";
 import { resolveConfigRoot } from "../../config/config-root";
 import { loadConfig } from "../../config/loader";
+import { userPaths } from "../../config/user-paths";
 import { WindowsSandbox, windowsExecutorPath } from "../../sandbox/windows";
 import { providerEnvironmentChecks } from "../../setup/provider-environment";
 import { checkWindowsEnforcement } from "../../setup/windows-enforcement";
@@ -43,6 +44,20 @@ export async function runDoctor(
   }>();
   const executor = opts.executor ? resolve(cwd, opts.executor) : windowsExecutorPath();
   const report = await checkWindowsPrerequisites(cwd, "host", { executor });
+  const paths = userPaths();
+  report.checks.push({
+    id: "user-paths",
+    label: "User data paths",
+    requirement: "recommended",
+    status: paths.mode === "legacy" || paths.conflict ? "warn" : "pass",
+    detail: `Mode: ${paths.conflict && !opts.configDir ? "conflict" : paths.mode}; installation: ${paths.installRoot}; config/state: ${opts.configDir ? resolveConfigRoot(opts.configDir, homedir(), cwd) : paths.configRoot}; default workspace: ${paths.workspaceRoot}; legacy config: ${paths.legacyConfig}; native data: ${paths.nativeRoot}`,
+    ...(paths.mode === "legacy"
+      ? {
+          remedy:
+            "Run cleetus migrate-data to preview migration; close other instances before applying with --yes.",
+        }
+      : {}),
+  });
   if (report.platform === "win32") {
     try {
       report.checks.push(...(await projectToolChecks(cwd)));
@@ -105,8 +120,8 @@ export async function runDoctor(
           : "Fix required prerequisites before running enforcement tests.",
       });
     }
-    const globalDir = resolveConfigRoot(opts.configDir, homedir(), cwd);
     try {
+      const globalDir = resolveConfigRoot(opts.configDir, homedir(), cwd);
       const config = await loadConfig({
         globalPath: join(globalDir, "config.yaml"),
         projectDir: cwd,

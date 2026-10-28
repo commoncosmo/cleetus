@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { Command } from "commander";
 import { loadInstructions } from "../../agent/instructions";
 import { resolveStartRouteMode } from "../../agent/route-modes";
+import { resolveConfigRoot } from "../../config/config-root";
 import { loadConfig } from "../../config/loader";
 import { resolveMaxToolLoops } from "../../config/loop-cap";
 import { BASELINE, type Candidate, loadCandidates } from "../../eval/candidate";
@@ -54,7 +55,9 @@ export async function runEval(argv: string[], projectDir: string, io: EvalIo): P
     candidatesDir: string;
   }>();
 
-  const GLOBAL_CONFIG = io.globalConfigPath ?? join(homedir(), ".config", "cleetus", "config.yaml");
+  const GLOBAL_CONFIG =
+    io.globalConfigPath ??
+    join(resolveConfigRoot(undefined, homedir(), process.cwd()), "config.yaml");
   const config = await loadConfig({ globalPath: GLOBAL_CONFIG, projectDir });
 
   // Safety gate: unattended auto-allowed runs must be sandboxed.

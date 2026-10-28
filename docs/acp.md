@@ -9,7 +9,7 @@ entry on Windows looks like this; the surrounding configuration is client-specif
 
 ```json
 {
-  "command": "C:\\Users\\you\\.local\\bin\\cleetus.exe",
+  "command": "C:\\Users\\you\\AppData\\Local\\Programs\\Cleetus\\bin\\cleetus.exe",
   "args": ["acp"]
 }
 ```
@@ -25,7 +25,7 @@ On Windows, GUI editors may retain a different PATH from your terminal. Use
 
 ```json
 {
-  "command": "C:\\Users\\you\\.local\\bin\\cleetus.exe",
+  "command": "C:\\Users\\you\\AppData\\Local\\Programs\\Cleetus\\bin\\cleetus.exe",
   "args": ["acp", "--shell-executable", "C:\\Tools\\PowerShell 7\\pwsh.exe"]
 }
 ```

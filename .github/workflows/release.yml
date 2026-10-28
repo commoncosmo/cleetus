@@ -202,6 +202,7 @@ jobs:
             dist/cleetus-*
             dist/checksums.txt
             install.sh
+            install.ps1
             LICENSE
             THIRD_PARTY_NOTICES.txt
             ACKNOWLEDGEMENTS.md

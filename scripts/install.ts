@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, copyFileSync, cpSync, mkdirSync } from "node:fs";
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { signCommand } from "./build";
+import { version } from "../package.json";
 
 /** True if `dir` appears as a `:`-separated entry in the given PATH string. */
 export function isOnPath(
@@ -51,11 +52,30 @@ export function resignInPlace(
 }
 
 if (import.meta.main) {
-  const targetDir = join(homedir(), ".local", "bin");
+  const targetDir =
+    process.platform === "win32"
+      ? join(
+          process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local"),
+          "Programs",
+          "Cleetus",
+          "bin",
+        )
+      : join(homedir(), ".local", "bin");
+  const ownWindowsPrefix =
+    process.platform === "win32" &&
+    (!existsSync(targetDir) || existsSync(join(targetDir, ".cleetus-install.json")));
   const dest = installBinary(
     join(process.cwd(), "dist", process.platform === "win32" ? "cleetus.exe" : "cleetus"),
     targetDir,
   );
+  if (ownWindowsPrefix) {
+    // This entry point owns the dedicated Programs/Cleetus/bin prefix. The
+    // generic installBinary helper never claims ownership of a shared bin dir.
+    writeFileSync(
+      join(targetDir, ".cleetus-install.json"),
+      JSON.stringify({ schema: 1, version: `v${version}`, architecture: process.arch }),
+    );
+  }
   if (resignInPlace(dest)) console.log("re-signed (ad-hoc) for macOS");
   console.log(`installed ${dest}`);
   if (!isOnPath(targetDir, process.env.PATH)) {
