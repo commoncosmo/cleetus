@@ -1,12 +1,14 @@
 # Inference providers
 
 Cleetus connects to separately installed local inference servers. It supports llama.cpp,
-LM Studio, Ollama, oMLX, and vLLM as first-class provider types. Provider names are your own aliases; the
+LM Studio, Ollama, oMLX, vLLM, and Strata as first-class provider types. Provider names are your own aliases; the
 `type` selects the adapter.
 
 ## Configuration
 
-Add one or more providers to `~/.config/cleetus/config.yaml`. Use the server root URL without
+Add one or more providers to your global `config.yaml` (`~/.config/cleetus/config.yaml` on
+Unix; `%LOCALAPPDATA%\Cleetus\config.yaml` for new native Windows installations, with existing
+legacy Windows data retained until migration). Use the server root URL without
 `/v1`; Cleetus adds API paths itself.
 
 ```yaml
@@ -26,6 +28,9 @@ providers:
   gpu:
     type: vllm
     base_url: http://gpu-server:8000
+  strata:
+    type: strata
+    base_url: http://strata-server:47832
 
 default_provider: local
 # default_model: your-model-id
@@ -48,7 +53,7 @@ than one server, select its provider explicitly.
 
 On first launch without a configured provider, Cleetus probes the default localhost ports below
 and writes a configuration for servers that return models. Add remote servers or servers that
-require an API key manually. vLLM always requires explicit configuration. The port-8000 oMLX
+require an API key manually. vLLM and Strata always require explicit configuration. The port-8000 oMLX
 probe accepts only models identified as `owned_by: omlx`, so a vLLM server is not saved as oMLX.
 
 ## Supported providers
@@ -60,6 +65,64 @@ probe accepts only models identified as `owned_by: omlx`, so a vLLM server is no
 | `ollama` | `http://localhost:11434` | Uses the OpenAI-compatible API and reads `/api/ps` and `/api/show` for loaded and architectural context metadata. |
 | `omlx` | `http://localhost:8000` | Uses the OpenAI-compatible API and reads the effective context window from `/v1/models` (`max_model_len`) when reported. |
 | `vllm` | `http://localhost:8000` | Explicit configuration only. Uses OpenAI-compatible routes and `/v1/models` (`max_model_len`) for the served context limit. Configure tool/reasoning parsers on the server. |
+| `strata` | `http://localhost:47832` | Explicit configuration. Supports OpenAI streaming, reasoning, tools, and schema recovery. Resolves model families from descriptive labels and reads `/props` for served context when exposed. |
+
+## Strata
+
+[Strata](https://github.com/Niko1221/Strata) exposes OpenAI-compatible chat and model routes.
+Use the root URL, without `/v1`, and the exact ID returned by `/v1/models`:
+
+```yaml
+providers:
+  strata:
+    type: strata
+    base_url: http://jethro:47832
+    # context_length: 32768  # Example only: match the server's actual configured window.
+default_provider: strata
+default_model: iq3_s
+```
+
+Desktop-router IDs such as `iq3_s` can hide the model family. Cleetus reads the model's
+`meta.label` (for example `Qwen3.8-Flash-Next IQ3_S`) to select the Qwen adapter without
+changing the ID sent to the server. An explicit `model_family.override` takes precedence;
+`model_family.enabled: false` disables family shaping.
+When switching an existing workaround from `type: vllm` to `type: strata`, remove
+`model_family.override: qwen` if the server's label identifies Qwen. Remove the empty
+`model_family` section too if it has no other settings. Keep an override only when needed
+for an unlabelled or incorrectly labelled model.
+
+When exposed, `/props?model=<id>` supplies the effective served window and chat-template
+capabilities. Some desktop/router installations expose only `/v1` routes. In that case,
+set the provider's optional `context_length` to the window actually configured in Strata.
+This is a declared fallback, not a discovered limit: native loaded metadata takes precedence,
+including when it reports a smaller window. For endpoints serving several models, use a
+fallback that fits every model or configure separate model-specific endpoints. Without
+either source, Cleetus keeps its conservative context behavior and doctor explains the gap.
+Do not substitute the model's advertised maximum for the server's loaded window.
+Run `cleetus --list-models` to verify the model ID and `cleetus doctor` to check the endpoint
+and context configuration before starting an interactive or ACP session.
+
+Strata rejects native `tools` together with `response_format`. Ordinary calls retain native
+tools. Constrained recovery calls send the JSON schema and textual tool definitions instead;
+Cleetus parses the resulting envelope and validates the recovered arguments before dispatch.
+Plain schema requests also omit native tools. Streaming reasoning, usage, and cancellation
+use the common transport. Configure a separate embedding provider if your Strata endpoint
+does not expose an embedding model.
+
+Run the opt-in live smoke test with a running server:
+
+```powershell
+bun scripts/smoke-strata.ts http://jethro:47832
+```
+
+Optional environment variables: `STRATA_MODEL`, `STRATA_API_KEY`, and
+`STRATA_CONTEXT_LENGTH`. The test uses a synthetic tool and isolated audit data under
+`dist/strata-smoke`; it does not modify your configuration or run shell/filesystem tools.
+It fault-injects one malformed response to exercise the real agent's structured recovery
+against Strata, and checks native tool round trips, context handling, cancellation, and
+the next request. Its default declared window of 4096 is a test value, not a measurement
+of your server's capacity. Native `/props` discovery is covered by fixture tests when a
+router does not expose that route.
 
 Embedding requests use the configured provider's `/v1/embeddings` route. The server must have an
 embedding-capable model available; ordinary chat models do not necessarily support embeddings.

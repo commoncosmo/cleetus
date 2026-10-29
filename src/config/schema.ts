@@ -1,10 +1,16 @@
 import { z } from "zod";
 
-export const ProviderConfigSchema = z.object({
-  type: z.enum(["lmstudio", "ollama", "llama.cpp", "omlx", "vllm"]),
-  base_url: z.string().url(),
-  api_key: z.string().optional(),
-});
+export const ProviderConfigSchema = z
+  .object({
+    type: z.enum(["lmstudio", "ollama", "llama.cpp", "omlx", "vllm", "strata"]),
+    base_url: z.string().url(),
+    api_key: z.string().optional(),
+    context_length: z.number().int().positive().optional(),
+  })
+  .refine((p) => p.context_length === undefined || p.type === "strata", {
+    message: "context_length is currently supported only for Strata providers",
+    path: ["context_length"],
+  });
 
 export const McpServerConfigSchema = z.object({
   command: z.string(),

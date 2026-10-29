@@ -73,11 +73,13 @@ export function lowContextWarning(
   const guidance =
     providerType === "llama.cpp"
       ? "llama.cpp: --ctx-size / LLAMA_ARG_CTX_SIZE"
-      : providerType === "vllm"
-        ? "vLLM: --max-model-len"
-        : providerType === "omlx"
-          ? "oMLX: per-model max_context_window in the admin settings"
-          : "LM Studio: Context Length; Ollama: num_ctx / OLLAMA_CONTEXT_LENGTH";
+      : providerType === "strata"
+        ? "Strata: increase the server context and match context_length when /props is unavailable"
+        : providerType === "vllm"
+          ? "vLLM: --max-model-len"
+          : providerType === "omlx"
+            ? "oMLX: per-model max_context_window in the admin settings"
+            : "LM Studio: Context Length; Ollama: num_ctx / OLLAMA_CONTEXT_LENGTH";
   return `${model} is loaded with only ${usable} tokens of context — raise it (${guidance}) for longer agentic sessions.`;
 }
 

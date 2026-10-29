@@ -114,7 +114,7 @@ export async function runImprove(
   }
   const providers = new ProviderRegistry();
   for (const [name, p] of Object.entries(config.providers)) {
-    providers.register(name, buildProvider(p.type, p.baseUrl, p.apiKey));
+    providers.register(name, buildProvider(p.type, p.baseUrl, p.apiKey, p));
   }
 
   const source = openEventSource(join(projectDir, ".cleetus", "sessions.db")) ?? EMPTY_SOURCE;

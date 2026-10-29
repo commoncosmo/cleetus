@@ -105,7 +105,7 @@ export async function runAnalyze(
       return 0;
     }
     try {
-      const provider = buildProvider(pcfg.type, pcfg.baseUrl, pcfg.apiKey);
+      const provider = buildProvider(pcfg.type, pcfg.baseUrl, pcfg.apiKey, pcfg);
       const samples = selectSamples(report, collectTrajectories(source, filter));
       const prose = await explainReport(report, samples, provider, model);
       if (prose.trim()) io.write(`\n## Suggestions\n${prose}\n`);

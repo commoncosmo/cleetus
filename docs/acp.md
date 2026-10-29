@@ -4,6 +4,12 @@ Run `cleetus acp` as an ACP v1 agent from a compatible editor or other client.
 Configure providers and approve project configuration from a terminal first;
 ACP launches use the same project trust checks as the CLI.
 
+Strata uses the same provider configuration in ACP as in the terminal: configure
+`type: strata`, the root `base_url` without `/v1`, and the served model ID (for example
+`iq3_s`). You can select it with `cleetus acp --provider strata --model iq3_s`, where
+`strata` is your configured provider name. Model-label family detection and the optional
+`context_length` fallback apply to ACP sessions too. See [Strata setup](providers.md#strata).
+
 Configure the client to launch the executable directly. A representative agent
 entry on Windows looks like this; the surrounding configuration is client-specific:
 

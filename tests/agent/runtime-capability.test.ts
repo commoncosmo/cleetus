@@ -506,6 +506,20 @@ describe("capability surface (runtime)", () => {
 });
 
 describe("capability surface — source-aware latch (modelContextInfo)", () => {
+  it("configured Strata context remains provisional and yields to a smaller loaded window", async () => {
+    const p = new RecordingProvider();
+    const state: { info: WindowInfo } = { info: { window: 131072, source: "configured" } };
+    const rt = makeRuntime(p, ["edit_file"], {
+      capability: () => "auto",
+      smallSystemPrompt: () => "SMALL PROMPT",
+      modelContextInfo: () => state.info,
+    });
+    await rt.runTurn("s1", "t1");
+    expect(p.requests.at(-1)!.messages[0]!.content).toBe("FULL PROMPT");
+    state.info = { window: 8192, source: "loaded" };
+    await rt.runTurn("s1", "t2");
+    expect(p.requests.at(-1)!.messages[0]!.content).toBe("SMALL PROMPT");
+  });
   it("architectural window grants standard provisionally; a later loaded small window downgrades", async () => {
     const p = new RecordingProvider();
     const state: { info: WindowInfo | undefined } = { info: undefined };

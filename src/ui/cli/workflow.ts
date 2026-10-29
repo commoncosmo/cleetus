@@ -251,7 +251,10 @@ export async function buildWorkflowService(input: {
       projectDir: input.projectDir,
     });
     for (const [name, provider] of Object.entries(config.providers)) {
-      providers.register(name, buildProvider(provider.type, provider.baseUrl, provider.apiKey));
+      providers.register(
+        name,
+        buildProvider(provider.type, provider.baseUrl, provider.apiKey, provider),
+      );
     }
     defaultProvider = config.defaultProvider ?? providers.names()[0];
     defaultModel = config.defaultModel;
