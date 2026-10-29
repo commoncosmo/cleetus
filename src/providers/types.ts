@@ -14,7 +14,7 @@ export function usableContextLength(value: unknown): number | undefined {
     : undefined;
 }
 
-export type WindowSource = "loaded" | "architectural";
+export type WindowSource = "loaded" | "configured" | "architectural";
 export interface WindowInfo {
   window: number;
   source: WindowSource;

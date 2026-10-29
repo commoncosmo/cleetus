@@ -95,7 +95,12 @@ async function readYaml(path: string, approvedText?: string | null): Promise<Raw
 function normalize(raw: RawConfig): Partial<CleetusConfig> {
   const providers: Record<string, ProviderConfig> = {};
   for (const [name, p] of Object.entries(raw.providers ?? {})) {
-    providers[name] = { type: p.type, baseUrl: p.base_url, apiKey: p.api_key };
+    providers[name] = {
+      type: p.type,
+      baseUrl: p.base_url,
+      apiKey: p.api_key,
+      ...(p.context_length === undefined ? {} : { contextLength: p.context_length }),
+    };
   }
   const mcpServers: Record<string, McpServerConfig> = {};
   for (const [name, s] of Object.entries(raw.mcp_servers ?? {})) {

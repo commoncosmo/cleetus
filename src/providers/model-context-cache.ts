@@ -46,13 +46,14 @@ export class ModelContextCache {
     return `${provider}:${model}`;
   }
 
-  /** Record a window. `loaded` overwrites any prior entry; `architectural` writes only when no
-   *  entry exists — it never clobbers a `loaded` window or an existing `architectural` one. */
+  /** Prefer loaded metadata, then a configured served window, then architectural metadata. */
   private setWindow(provider: string, model: string, window: number, source: WindowSource): void {
     const usable = usableContextLength(window);
     if (usable === undefined) return;
     const key = ModelContextCache.key(provider, model);
-    if (source === "architectural" && this.byKey.has(key)) return;
+    const rank = { architectural: 0, configured: 1, loaded: 2 };
+    const existing = this.byKey.get(key);
+    if (existing && (source === "architectural" || rank[source] < rank[existing.source])) return;
     this.byKey.set(key, { window: usable, source });
   }
 
@@ -138,11 +139,12 @@ export class ModelContextCache {
   }
 
   /** Throttled targeted /api/show probe for one model, used on a true miss to resolve a window
-   *  that /api/ps will never report (cloud model). No-op once any window is cached for the model.
+   *  that /api/ps will never report (cloud model). Configured fallbacks keep seeking loaded evidence.
    *  `probeInFlight` bounds to one probe per model; `refreshIntervalMs` bounds the rate. */
   probe(provider: string, model: string): Promise<void> {
     const key = ModelContextCache.key(provider, model);
-    if (this.byKey.has(key)) return Promise.resolve();
+    const existing = this.byKey.get(key);
+    if (existing && existing.source !== "configured") return Promise.resolve();
     if (this.probeInFlight.has(key)) return Promise.resolve();
     const last = this.lastProbe.get(key) ?? Number.NEGATIVE_INFINITY;
     if (this.now() - last < this.refreshIntervalMs) return Promise.resolve();
@@ -155,12 +157,13 @@ export class ModelContextCache {
    *  (fire-and-forget) unless the window is already authoritative (`loaded`):
    *   - missing → targeted /api/show probe + /api/ps list-refresh
    *   - architectural → /api/ps list-refresh only (seek the authoritative loaded window)
+   *   - configured → list-refresh and targeted native probe (seek loaded evidence)
    *   - loaded → nothing. */
   getInfo(provider: string, model: string): WindowInfo | undefined {
     const v = this.byKey.get(ModelContextCache.key(provider, model));
     if (v?.source === "loaded") return v;
     void this.refresh(provider);
-    if (v === undefined) void this.probe(provider, model);
+    if (v === undefined || v.source === "configured") void this.probe(provider, model);
     return v;
   }
 

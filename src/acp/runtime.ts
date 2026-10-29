@@ -334,13 +334,13 @@ export async function buildAcpRuntime(options: AcpRuntimeOptions): Promise<AcpRu
       throw new Error("Windows prerequisites are unavailable; run cleetus doctor --windows.");
     }
     throw new Error(
-      `no providers configured. add an lmstudio, ollama, llama.cpp, omlx, or vllm provider to ${GLOBAL_CONFIG}`,
+      `no providers configured. add an lmstudio, ollama, llama.cpp, omlx, vllm, or strata provider to ${GLOBAL_CONFIG}`,
     );
   }
 
   const providers = new ProviderRegistry();
   for (const [name, p] of Object.entries(config.providers)) {
-    providers.register(name, buildProvider(p.type, p.baseUrl, p.apiKey));
+    providers.register(name, buildProvider(p.type, p.baseUrl, p.apiKey, p));
   }
   const modelContext = new ModelContextCache(providers);
 

@@ -27,6 +27,8 @@ export interface OpenAICompatOpts {
    *  nested OpenAI json_schema envelope. Its broadly compatible constrained-output form
    *  uses type json_object. */
   responseFormatStyle?: "openai" | "llama.cpp";
+  /** Strata rejects response_format together with native tools. Keep req.tools for recovery. */
+  omitToolsWithResponseFormat?: boolean;
 }
 
 /** Monotonic salt for recovered tool-call IDs so successive recoveries never collide across
@@ -160,7 +162,12 @@ export async function* chatOpenAI(
       opts.responseFormatStyle === "llama.cpp" && req.responseFormat
         ? { enable_thinking: false }
         : undefined,
-    tools: req.tools?.length ? req.tools.map(toOpenAITool) : undefined,
+    tools:
+      opts.omitToolsWithResponseFormat && req.responseFormat
+        ? undefined
+        : req.tools?.length
+          ? req.tools.map(toOpenAITool)
+          : undefined,
   };
   let res: Response;
   try {

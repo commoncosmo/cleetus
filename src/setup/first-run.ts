@@ -82,6 +82,10 @@ const SCAFFOLD_CONFIG = `# cleetus configuration — uncomment a provider, then 
 #   gpu:  # vLLM requires explicit configuration; see docs/providers.md
 #     type: vllm
 #     base_url: http://localhost:8000
+#   strata:  # Explicit configuration; omit /v1 from the URL
+#     type: strata
+#     base_url: http://localhost:47832
+#     # context_length: 32768  # Actual served window, only if /props is unavailable
 # default_provider: lmstudio
 # default_model: your-model-id
 `;

@@ -449,7 +449,7 @@ async function main(argv: string[]): Promise<number> {
 
   const providers = new ProviderRegistry();
   for (const [name, p] of Object.entries(config.providers)) {
-    providers.register(name, buildProvider(p.type, p.baseUrl, p.apiKey));
+    providers.register(name, buildProvider(p.type, p.baseUrl, p.apiKey, p));
   }
   const modelContext = new ModelContextCache(providers);
 

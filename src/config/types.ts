@@ -14,12 +14,14 @@ import type { SmokeRunConfig } from "./smoke-run";
 import type { StreamWatchdogConfig } from "./stream-watchdog";
 import type { VisionConfig } from "./vision";
 
-export type ProviderType = "lmstudio" | "ollama" | "llama.cpp" | "omlx" | "vllm";
+export type ProviderType = "lmstudio" | "ollama" | "llama.cpp" | "omlx" | "vllm" | "strata";
 
 export interface ProviderConfig {
   type: ProviderType;
   baseUrl: string;
   apiKey?: string;
+  /** Strata's declared served window, used only when native metadata is unavailable. */
+  contextLength?: number;
 }
 
 export interface McpServerConfig {

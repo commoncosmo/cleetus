@@ -105,7 +105,7 @@ export async function runEval(argv: string[], projectDir: string, io: EvalIo): P
   }
   const providers = new ProviderRegistry();
   for (const [name, p] of Object.entries(config.providers)) {
-    providers.register(name, buildProvider(p.type, p.baseUrl, p.apiKey));
+    providers.register(name, buildProvider(p.type, p.baseUrl, p.apiKey, p));
   }
 
   const deps: RunnerDeps = {
