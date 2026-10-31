@@ -1,6 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
+import { expandHomePath } from "../lib/paths";
 import { SCRATCH_PREFIX } from "./scratch-lifecycle";
 import { type UserPathOptions, userPaths } from "./user-paths";
 
@@ -43,8 +44,8 @@ function resolveGlobalDir(
   options?: UserPathOptions,
 ): string {
   if (!configured) return userPaths(home, options).workspaceRoot;
-  if (configured === "~") return home;
-  if (configured.startsWith("~/")) return join(home, configured.slice(2));
+  const expanded = expandHomePath(configured, home);
+  if (expanded !== configured) return expanded;
   return isAbsolute(configured) ? configured : join(home, configured);
 }
 

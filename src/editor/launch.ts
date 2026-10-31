@@ -1,6 +1,7 @@
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { isAbsolute, resolve } from "node:path";
+import { expandHomePath, isPathWithin } from "../lib/paths";
 import { createConfinedEditorTarget } from "./create";
 import { parseEditorWords } from "./words";
 
@@ -52,14 +53,9 @@ function defaultSpawn(argv: string[], options: EditorSpawnOptions): EditorChild 
 }
 
 function resolveTarget(cwd: string, value: string): string {
-  if (value === "~") return homedir();
-  if (value.startsWith("~/")) return join(homedir(), value.slice(2));
+  const expanded = expandHomePath(value, homedir());
+  if (expanded !== value) return expanded;
   return isAbsolute(value) ? resolve(value) : resolve(cwd, value);
-}
-
-function inside(root: string, target: string): boolean {
-  const rel = relative(root, target);
-  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`));
 }
 
 const SECRET_ENV_NAME = /(?:^|_)(?:API_?KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?)(?:_|$)/iu;
@@ -143,7 +139,7 @@ export async function launchEditor(options: LaunchEditorOptions): Promise<Editor
     const projectRoot = resolveRealpath(options.cwd);
     const outside = targets
       .map((target) => resolveRealpath(target))
-      .filter((target) => !inside(projectRoot, target));
+      .filter((target) => !isPathWithin(projectRoot, target));
     if (outside.length > 0) {
       if (!options.confirmOutsideProject) {
         throw new Error(

@@ -1,5 +1,6 @@
 import { stat } from "node:fs/promises";
-import { dirname, isAbsolute, resolve, sep } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
+import { isPathWithin } from "../lib/paths";
 import { extractGuardedPath } from "./malformed-path";
 
 export interface CrossProjectReference {
@@ -17,7 +18,10 @@ function stringArg(args: unknown, key: string): string | null {
  * sibling project. Ordinary command arguments and flags are ignored. */
 function shellPathCandidates(command: string): string[] {
   const candidates: string[] = [];
-  const token = /(?:^|[\s"'`])((?:\/|\.{1,2}\/)[^\s"'`|;&<>]+)/g;
+  const token =
+    process.platform === "win32"
+      ? /(?:^|[\s"'`])((?:[A-Za-z]:[\\/]|[\\/]|\.{1,2}[\\/])[^\s"'`|;&<>]+)/g
+      : /(?:^|[\s"'`])((?:\/|\.{1,2}\/)[^\s"'`|;&<>]+)/g;
   for (const match of command.matchAll(token)) {
     const raw = match[1]?.replace(/[),:\]}]+$/, "");
     if (raw) candidates.push(raw);
@@ -67,7 +71,10 @@ function pathMentionedByUser(rawPath: string, projectRoot: string, userInput: st
   const normalized = userInput.replaceAll("\\", "/");
   const raw = rawPath.replaceAll("\\", "/").replace(/\/+$/, "");
   const root = projectRoot.replaceAll("\\", "/").replace(/\/+$/, "");
-  return normalized.includes(root) || (raw.length > 2 && normalized.includes(raw));
+  const text = process.platform === "win32" ? normalized.toLowerCase() : normalized;
+  const rootText = process.platform === "win32" ? root.toLowerCase() : root;
+  const rawText = process.platform === "win32" ? raw.toLowerCase() : raw;
+  return text.includes(rootText) || (raw.length > 2 && text.includes(rawText));
 }
 
 /** Detect a model-generated reference into another Cleetus project. Explicit paths named in the
@@ -84,8 +91,7 @@ export async function unexpectedCleetusProjectReference(
     const siblingRoot = await containingCleetusProject(target);
     if (
       siblingRoot &&
-      siblingRoot !== activeRoot &&
-      !siblingRoot.startsWith(activeRoot + sep) &&
+      !isPathWithin(activeRoot, siblingRoot) &&
       !pathMentionedByUser(rawPath, siblingRoot, userInput)
     ) {
       return { rawPath, projectRoot: siblingRoot };

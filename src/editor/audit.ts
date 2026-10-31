@@ -1,4 +1,4 @@
-import { relative, resolve, sep } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { EditorLaunchResult } from "./launch";
 import { parseEditorWords } from "./words";
 
@@ -57,7 +57,7 @@ interface OutsideProjectAuthorizationRequest {
 
 function inside(root: string, target: string): boolean {
   const rel = relative(root, target);
-  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`));
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
 export function editorExecutableLabel(executable: string): string | undefined {

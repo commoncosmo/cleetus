@@ -298,6 +298,45 @@ recovered through the bounded npm path. Repeat that opt-in network test with
 `bun scripts/smoke-windows-scaffold.ts`; it writes only to its own `dist/scaffold-smoke`
 project and downloads the pinned generator. `ctest` is not used or modified.
 
+## Private configuration, state, and Windows paths
+
+Windows private-state writes use the OS-shipped Windows PowerShell/.NET ACL APIs,
+independently of the PowerShell selected for agent commands. They do not require
+administrator elevation or a separate utility, and do not change execution policy.
+The DACL grants Full Control only to the current user's SID, LocalSystem, and
+BUILTIN Administrators. Inheritance from permissive parents is disabled; private
+directories supply inheritable rules for new children, and existing private trees
+are tightened when opened through the directory helper. This protects data from
+other ordinary local accounts, not administrators or processes already running as you.
+
+The global data root's `workspace` child is a source workspace: it inherits the
+root's permissions, but Cleetus does not recursively replace its explicit ACLs or
+walk dependency junctions there. Linked private-state entries remain refused.
+
+New private files receive their ACL at creation, before content is written.
+SQLite databases and their WAL/SHM sidecars are prepared privately before SQLite
+opens them. Config/state writes, saved permissions, trust records, attachments,
+and memory use the shared protections. Application-owned roots are secured without
+changing the project/source parent. Data migration secures the destination before
+reporting success and rolls back directory moves if protection fails.
+
+Use a filesystem/location supporting Windows ACLs, with entries owned by your
+account, SYSTEM, or Administrators. Private-state junctions, symbolic links, hardlinked
+files, and linked parent paths are refused. An ACL failure stops the operation;
+Cleetus never treats a successful `chmod` as Windows privacy protection or writes
+secret content through an unprotected fallback.
+
+Home expansion accepts `~\notes` and `~/notes` on Windows. Editor commands preserve
+native backslashes and quoted paths with spaces; use quotes around a path containing
+spaces rather than Bash-style backslash escaping. Path containment handles drive
+boundaries, UNC shares, case variants, and Windows namespace prefixes. Secret guards
+also cover `%APPDATA%\gcloud`, `%APPDATA%\gnupg`, and `~\_netrc`, alongside the
+existing home-relative locations. Native backslash glob patterns are normalized
+before matching and checked for wildcard-tail traversal.
+
+The `windows-state` CI workflow exercises native ACLs, SQLite sidecars, and path
+regressions on x64 and ARM64 runners; it does not claim MXC enforcement coverage.
+
 ## Windows Terminal
 
 The interactive TUI emits trusted OSC 9;4 state to Windows Terminal only when stdout
@@ -390,6 +429,7 @@ Windows host with x64 emulation. That is not a physical x64 machine test.
 
 Local validation used Windows build 28000 with Bun 1.3.14. Physical x64 coverage,
 full interactive Terminal rendering, broader development-tool compatibility,
-Windows ACL/private-state parity, and remaining Unix-specific path assumptions
-still need dedicated coverage before treating the entire Windows port as complete.
+and additional Windows path/toolchain edge cases still need dedicated coverage
+before treating the entire Windows port as complete. Private-state ACL and core
+Windows path regressions have dedicated native coverage as described above.
 CI builds Windows artifacts but does not certify MXC enforcement on its hosted OS.

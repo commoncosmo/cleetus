@@ -818,7 +818,7 @@ function verificationMatchesAcceptance(task: PlanTask, verification: Verificatio
     .split(/\s/)[0]
     ?.replace(/^['"]|['"]$/g, "");
   if (!testTarget || testTarget === "full") return false;
-  const basename = testTarget.split("/").pop() ?? testTarget;
+  const basename = testTarget.split(/[\\/]/).pop() ?? testTarget;
   return acceptance.includes(testTarget) || acceptance.includes(basename);
 }
 

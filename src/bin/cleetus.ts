@@ -461,7 +461,7 @@ async function main(argv: string[]): Promise<number> {
   }
 
   privateDirectory(join(projectDir, ".cleetus"));
-  privateDirectory(GLOBAL_DIR);
+  privateDirectory(GLOBAL_DIR, { excludeChildren: ["workspace"] });
   privateFile(GLOBAL_CONFIG);
   privateFile(join(projectDir, ".cleetus", "config.yaml"));
 
