@@ -72,6 +72,49 @@ PowerShell child process. The client must run on the same Windows host and have
 the required executables available. Cross-platform remote terminals are not
 negotiated.
 
+## Command approvals
+
+Shell prompts offer an exact-command session approval and, for simple commands, a
+suggested argument pattern such as `bun test *`. The pattern choice states the
+working directory, shell, and whether it lasts for this session or is saved to the
+project. It covers future matching calls without approving a different subcommand.
+
+Use these commands between turns for a custom pattern:
+
+```text
+/permissions
+/permissions allow session bun test tests/*.test.ts --timeout 30000
+/permissions allow project bun test *
+/permissions remove project bun test *
+```
+
+Scopes are `session`, `project`, and `global`. Saved global command rules still
+apply only to their recorded working directory and shell. Removal targets the
+same pattern, current working directory, shell, and scope. Project saves update
+Cleetus's external trust record; external file edits still require project reapproval.
+Session rules belong to this live ACP session and are not persisted across ACP
+process restarts or restored from saved conversation history.
+
+Clients advertising `clientCapabilities.elicitation.form` also get an **Edit command
+approval pattern** option. Cleetus sends an `elicitation/create` form, validates the
+response, then asks for a separate permission confirmation showing the complete rule.
+Declining, cancelling, disconnecting, or returning an invalid response never grants
+permission. Clients without form support use the suggested choices or `/permissions`.
+No particular editor's form support is assumed.
+
+`*` inside an argument matches part of that argument; a standalone `*` matches zero
+or more arguments. The executable stays fixed; dispatchers such as Bun, npm, and Git
+also keep their subcommand fixed. Shell operators, substitutions, redirections,
+control characters, and interpreter payloads require ordinary per-call approval.
+Complex quoting/escaping may also fall back to a prompt. These are command approvals,
+not guarantees about a program's effects: approved scripts, tests, and options can
+execute code. Cleetus's normal execution boundaries and non-overridable guards remain.
+
+Saved `command_pattern` rules are shared with CLI Cleetus and bind `command_cwd`
+and `command_shell`. Legacy `args_pattern` rules retain their trailing-prefix behavior;
+legacy broad allow rules continue to require ACP client approval. See
+[Permissions](../README.md#permissions) for the terminal editing flow.
+
 ## Cancellation, sessions, and files
 
 Command deadlines and `session/cancel` stop waiting for terminal completion,

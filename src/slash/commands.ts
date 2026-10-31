@@ -420,8 +420,10 @@ export function buildCommandRegistry(deps: CommandDeps): CommandRegistry {
       const r = deps.getPermissions();
       const fmt = (label: string, rules: typeof r.project) => {
         if (!rules.length) return `${label}: (none)`;
-        const lines = rules.map(
-          (rule) => `  ${rule.tool} ${rule.argsPattern ?? "*"} -> ${rule.decision}`,
+        const lines = rules.map((rule) =>
+          rule.commandPattern !== undefined
+            ? `  ${rule.commandPattern} [cwd=${rule.commandCwd}; shell=${rule.commandShell}] -> ${rule.decision}`
+            : `  ${rule.tool} ${rule.argsPattern ?? "*"} -> ${rule.decision}`,
         );
         return `${label}:\n${lines.join("\n")}`;
       };

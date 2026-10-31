@@ -1,5 +1,10 @@
 import { dirname } from "node:path";
 import {
+  type CommandContext,
+  buildCommandRule,
+  commandPatternMatches,
+} from "../../permission/command-pattern";
+import {
   PATH_READING_TOOLS,
   PATH_WRITING_TOOLS,
   type PermissionRule,
@@ -21,16 +26,20 @@ export function defaultGrantInput(
   return null;
 }
 
-/** Build the grant rule (sans decision) from the edited broaden field. bash → an argsPattern
- *  rule with a trailing "*" ensured (the evaluator only prefix-matches with one); a write or
- *  read tool → a pathPrefix rule. Empty input or an unsupported tool → null. */
+/** Shell edits with execution context produce scoped argument patterns. Legacy callers without
+ * context retain their raw prefix rule; read/write tools produce directory rules. */
 export function buildGrantRule(
   tool: string,
   edited: string,
+  commandContext?: CommandContext,
 ): Omit<PermissionRule, "decision"> | null {
   const text = edited.trim();
   if (!text) return null;
   if (tool === "bash") {
+    if (commandContext)
+      return commandPatternMatches(text, commandContext.command)
+        ? buildCommandRule(text, commandContext)
+        : null;
     return { tool: "bash", argsPattern: text.endsWith("*") ? text : `${text}*` };
   }
   if (PATH_WRITING_TOOLS.has(tool) || PATH_READING_TOOLS.has(tool)) return { pathPrefix: text };

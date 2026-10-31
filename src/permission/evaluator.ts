@@ -1,5 +1,6 @@
 import { isPathWithin } from "../lib/paths";
 import type { ToolAuthorization } from "../tools/types";
+import { type CommandContext, commandRuleMatches } from "./command-pattern";
 import {
   BUILTIN_DEFAULTS,
   type Decision,
@@ -82,6 +83,7 @@ export function evaluateRules(
   args: string,
   targetPath?: string,
   authorization?: ToolAuthorization,
+  commandContext?: CommandContext,
 ): Decision | null {
   for (const layer of [rules.project, rules.global]) {
     // Within a layer: any matching deny wins over any other match ("never" must stick
@@ -91,7 +93,10 @@ export function evaluateRules(
     let first: Decision | null = null;
     for (const rule of layer) {
       let matches = false;
-      if (rule.pathPrefix !== undefined) {
+      if (rule.commandPattern !== undefined) {
+        matches =
+          tool === "bash" && rule.tool === "bash" && commandRuleMatches(rule, commandContext);
+      } else if (rule.pathPrefix !== undefined) {
         matches =
           targetPath != null &&
           (PATH_WRITING_TOOLS.has(tool) || PATH_READING_TOOLS.has(tool)) &&
@@ -115,8 +120,11 @@ export function evaluatePermission(
   args: string,
   targetPath?: string,
   authorization?: ToolAuthorization,
+  commandContext?: CommandContext,
 ): Decision {
   return (
-    evaluateRules(rules, tool, args, targetPath, authorization) ?? BUILTIN_DEFAULTS[tool] ?? "ask"
+    evaluateRules(rules, tool, args, targetPath, authorization, commandContext) ??
+    BUILTIN_DEFAULTS[tool] ??
+    "ask"
   );
 }

@@ -86,6 +86,7 @@ import type { NamedServerConfig } from "../mcp/types";
 import { loadMemories } from "../memory/load";
 import { RememberTool } from "../memory/remember-tool";
 import { MemoryStore } from "../memory/store";
+import { commandShellIdentity, resolveCommandContext } from "../permission/command-pattern";
 import { stripBashAllowRules } from "../permission/degraded";
 import { evaluatePermission, evaluateRules } from "../permission/evaluator";
 import { loadPermissions } from "../permission/loader";
@@ -850,6 +851,10 @@ async function main(argv: string[]): Promise<number> {
       systemPrompt,
       projectDir,
       resolvePermission: async ({ tool, args, argsSummary, authorization }) => {
+        const commandContext =
+          tool === "bash"
+            ? await resolveCommandContext(args, projectDir, await commandShellIdentity(sandbox))
+            : undefined;
         // Both calls re-resolve the path; cheap here (realpath is OS-cached, once per tool
         // call) and non-write tools short-circuit before any I/O via rawToolPath.
         const escapes = await writeEscapesProject(tool, args, projectDir);
@@ -860,6 +865,7 @@ async function main(argv: string[]): Promise<number> {
           argsSummary,
           targetPath ?? undefined,
           authorization,
+          commandContext,
         );
         // Explicit deny always wins
         if (baseline === "deny") return "deny";
@@ -1126,6 +1132,7 @@ async function main(argv: string[]): Promise<number> {
   let resolverFn:
     | ((
         req: {
+          commandContext?: import("../permission/command-pattern").CommandContext;
           tool: string;
           argsSummary: string;
           details?: string;
@@ -1284,6 +1291,10 @@ async function main(argv: string[]): Promise<number> {
     systemPrompt,
     projectDir,
     resolvePermission: async ({ tool, args, argsSummary, authorization }) => {
+      const commandContext =
+        tool === "bash"
+          ? await resolveCommandContext(args, projectDir, await commandShellIdentity(sandbox))
+          : undefined;
       const escapes = await writeEscapesProject(tool, args, projectDir);
       const targetPath = await resolveToolTargetPath(tool, args, projectDir);
       const baseline = evaluatePermission(
@@ -1292,6 +1303,7 @@ async function main(argv: string[]): Promise<number> {
         argsSummary,
         targetPath ?? undefined,
         authorization,
+        commandContext,
       );
       // Explicit deny always wins
       if (baseline === "deny") return "deny";
@@ -1367,6 +1379,7 @@ async function main(argv: string[]): Promise<number> {
           {
             tool,
             argsSummary: promptSummary,
+            commandContext,
             details: tool === "task" ? subagentPermissionDetails(args) : undefined,
             targetPath: targetPath ?? undefined,
           },

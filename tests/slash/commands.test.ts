@@ -19,6 +19,29 @@ class FakeProvider implements Provider {
 }
 
 describe("slash commands", () => {
+  it("/permissions displays scoped command rules without describing a whole-tool allow", async () => {
+    const printed: string[] = [];
+    const reg = buildCommandRegistry({
+      providers: new ProviderRegistry(),
+      getActive: () => ({ provider: "p", model: "m" }),
+      setActive: () => {},
+      getPermissions: () => ({
+        project: [
+          {
+            tool: "bash",
+            commandPattern: "bun test *",
+            commandCwd: "/repo",
+            commandShell: "bash:/bin/bash",
+            decision: "allow",
+          },
+        ],
+        global: [],
+      }),
+    });
+    await reg.get("permissions")!.run("", { cwd: "/repo", print: (s) => printed.push(s) });
+    expect(printed.join("\n")).toContain("bun test * [cwd=/repo; shell=bash:/bin/bash] -> allow");
+    expect(printed.join("\n")).not.toContain("bash * -> allow");
+  });
   let providers: ProviderRegistry;
   let printed: string[];
   let activeProvider = "p1";

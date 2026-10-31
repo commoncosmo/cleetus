@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { dirname, relative, resolve, sep } from "node:path";
 import type { ResolvePermission } from "../agent/types";
+import { updateCommandApproval } from "../permission/command-approvals";
+import {
+  buildCommandRule,
+  commandPatternMatches,
+  resolveCommandContext,
+  suggestedCommandPattern,
+} from "../permission/command-pattern";
 import { evaluateRules, pathUnder } from "../permission/evaluator";
 import { addRule } from "../permission/grant";
 import {
@@ -10,11 +17,16 @@ import {
   resolveToolTargetPath,
 } from "../permission/path-guard";
 import { persistRule } from "../permission/persist";
+import type { PermissionRule } from "../permission/types";
 import { PATH_WRITING_TOOLS, type PermissionRules } from "../permission/types";
 import type { ToolAuthorization } from "../tools/types";
 import { toolKind } from "./event-bridge";
 
 export interface PermissionClient {
+  elicitCommandPattern?(req: { sessionId: string; toolCallId?: string; pattern: string }): Promise<{
+    action: string;
+    content?: unknown;
+  }>;
   requestPermission(req: {
     sessionId: string;
     toolCall: object;
@@ -26,6 +38,7 @@ export interface PermissionClient {
  *  `tools`: whole-tool grants (bash/non-write tools chosen via "Always allow").
  *  `prefixes`: absolute, symlink-resolved directories granted for edits ("Always allow edits in <dir>"). */
 export interface SessionGrants {
+  commandRules?: PermissionRule[];
   tools: Set<string>;
   prefixes: string[];
   /** Exact-match session denials recorded by "Always reject" (tool + serialized args). */
@@ -75,9 +88,13 @@ function displayDir(projectDir: string, dir: string): string {
  *  a whole-tool grant; an out-of-tree writer (or one with no usable target) is offered allow-once
  *  only; non-writers keep the original four options. */
 export interface AcpPermissionOpts {
+  commandRules?: PermissionRule[];
+  shellIdentity?: () => Promise<string>;
+  globalPath?: string;
+  signal?: AbortSignal;
   /** Persisted rules loaded per session cwd (cached by `makeRulesForCwd`) and kept in sync at
-   *  runtime as "Always reject" grants mirror new deny rules into this set; only DENY outcomes
-   *  are honored here — the ACP client remains the allow surface. */
+   *  runtime as decisions are saved. Denies and explicitly scoped command approvals are honored;
+   *  legacy whole-tool allows still require client consent. */
   rules?: PermissionRules;
   /** Project permissions.yaml path; when set, "Always reject" persists the deny rule. */
   persistPath?: string;
@@ -99,6 +116,16 @@ export function makeAcpResolvePermission(
   opts: AcpPermissionOpts = {},
 ): ResolvePermission {
   return async ({ toolCallId, tool, args, argsSummary, authorization }) => {
+    const commandContext =
+      tool === "bash" && opts.shellIdentity
+        ? await resolveCommandContext(args, projectDir, await opts.shellIdentity())
+        : undefined;
+    const commandRules = opts.commandRules ?? [];
+    const checkSignal = () => {
+      if (opts.signal?.aborted)
+        throw opts.signal.reason ?? new Error("Permission request cancelled");
+    };
+    checkSignal();
     // 1. Session denial (exact tool + args match recorded by an earlier "Always reject") wins
     //    outright — no rule lookup, no prompt.
     if (grants.denials.some((d) => d.tool === tool && d.argsPattern === argsSummary)) {
@@ -115,14 +142,40 @@ export function makeAcpResolvePermission(
       : ((await resolveReadTarget(tool, args, projectDir))?.target ?? undefined);
 
     // 3. A persisted DENY rule wins over any session grant — deny must always beat allow.
-    //    Allow outcomes from rules are deliberately NOT auto-honored here; the ACP client stays
-    //    the allow surface.
-    if (
-      opts.rules &&
-      evaluateRules(opts.rules, tool, argsSummary, ruleTarget, authorization) === "deny"
-    ) {
+    //    Legacy allow outcomes do not bypass the ACP client consent surface.
+    const ruled = opts.rules
+      ? evaluateRules(opts.rules, tool, argsSummary, ruleTarget, authorization, commandContext)
+      : null;
+    const sessionCommandDecision = evaluateRules(
+      { project: commandRules, global: [] },
+      tool,
+      argsSummary,
+      undefined,
+      undefined,
+      commandContext,
+    );
+    if (ruled === "deny" || sessionCommandDecision === "deny") {
       return "deny";
     }
+
+    // Only the new explicitly scoped command rules auto-allow from disk. Legacy whole-tool
+    // allows retain the existing ACP client approval contract.
+    const savedCommandRules = opts.rules
+      ? {
+          project: opts.rules.project.filter((r) => r.commandPattern !== undefined),
+          global: opts.rules.global.filter((r) => r.commandPattern !== undefined),
+        }
+      : undefined;
+    const savedCommandDecision = savedCommandRules
+      ? evaluateRules(savedCommandRules, tool, argsSummary, undefined, undefined, commandContext)
+      : null;
+    const needsCommandConsent = tool === "bash" && opts.degraded != null && !opts.degraded.acked;
+    if (
+      !needsCommandConsent &&
+      (sessionCommandDecision === "allow" ||
+        (ruled === "allow" && savedCommandDecision === "allow"))
+    )
+      return "allow";
 
     if (opts.permissionsDisabled && tool !== "job_start") return "allow";
 
@@ -199,6 +252,32 @@ export function makeAcpResolvePermission(
       options = [ALLOW_ONCE, ALLOW_ALWAYS, REJECT_ONCE, REJECT_ALWAYS];
     }
 
+    const suggested = commandContext ? suggestedCommandPattern(commandContext.command) : null;
+    if (tool === "bash" && commandContext) {
+      const choices = [];
+      if (suggested) {
+        const scope = ` in ${commandContext.cwd} using ${commandContext.shell}`;
+        choices.push({
+          optionId: "allow_command_session",
+          name: `Allow ${suggested}${scope} this session`,
+          kind: "allow_always",
+        });
+        if (opts.persistPath && opts.rules)
+          choices.push({
+            optionId: "allow_command_project",
+            name: `Save project approval: ${suggested}${scope}`,
+            kind: "allow_always",
+          });
+      }
+      if (client.elicitCommandPattern)
+        choices.push({
+          optionId: "edit_command_pattern",
+          name: "Edit command approval pattern… (confirmation follows)",
+          kind: "allow_once",
+        });
+      options.splice(2, 0, ...choices);
+    }
+
     // Surface the resolved absolute target so the client can show *where* a write lands
     // (ACP's toolCall.locations). Non-write tools have no single location and send none.
     const needsConsent = tool === "bash" && opts.degraded != null && !opts.degraded.acked;
@@ -227,8 +306,67 @@ export function makeAcpResolvePermission(
       toolCall,
       options: options.map((o) => ({ ...o })),
     });
+    checkSignal();
     if (outcome.outcome === "cancelled") return "deny";
     const chosen = outcome.optionId;
+    if (!options.some((option) => option.optionId === chosen)) return "deny";
+    if (
+      chosen === "allow_command_session" ||
+      chosen === "allow_command_project" ||
+      chosen === "edit_command_pattern"
+    ) {
+      if (!commandContext) return "deny";
+      let pattern = suggested;
+      let scope: "session" | "project" | "global" =
+        chosen === "allow_command_project" ? "project" : "session";
+      if (chosen === "edit_command_pattern") {
+        const response = await client.elicitCommandPattern!({
+          sessionId,
+          toolCallId,
+          pattern: suggested ?? commandContext.command,
+        });
+        checkSignal();
+        if (response.action !== "accept") return "deny";
+        const content = response.content as { pattern?: unknown; scope?: unknown } | null;
+        if (
+          typeof content?.pattern !== "string" ||
+          typeof content.scope !== "string" ||
+          !["session", "project", "global"].includes(content.scope)
+        )
+          return "deny";
+        pattern = content.pattern;
+        scope = content.scope as typeof scope;
+        const rule = buildCommandRule(pattern, commandContext);
+        if (!rule || !commandPatternMatches(pattern, commandContext.command)) return "deny";
+        const confirmation = await client.requestPermission({
+          sessionId,
+          toolCall,
+          options: [
+            {
+              optionId: "confirm_command_pattern",
+              name: `Allow ${pattern} in ${commandContext.cwd} using ${commandContext.shell} (${scope})`,
+              kind: "allow_always",
+            },
+            REJECT_ONCE,
+          ],
+        });
+        checkSignal();
+        if (
+          confirmation.outcome.outcome !== "selected" ||
+          confirmation.outcome.optionId !== "confirm_command_pattern"
+        )
+          return "deny";
+      }
+      const rule = pattern ? buildCommandRule(pattern, commandContext) : null;
+      if (!rule || !commandPatternMatches(pattern!, commandContext.command)) return "deny";
+      await updateCommandApproval({ ...opts, sessionRules: commandRules, projectDir }, rule, scope);
+      checkSignal();
+      if (needsConsent) {
+        opts.degraded!.persistAck();
+        opts.degraded!.acked = true;
+      }
+      return "allow";
+    }
     if (
       needsConsent &&
       (chosen === "allow_once" ||

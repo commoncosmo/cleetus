@@ -3,7 +3,9 @@ import type { CheckpointSummary } from "../checkpoint/types";
 import type { LearnPlaybookController } from "../learn/service";
 import type { McpServerStatus } from "../mcp/types";
 import type { MemoryStore } from "../memory/store";
+import type { CommandApprovalScope } from "../permission/command-approvals";
 import type { PermissionRules } from "../permission/types";
+import type { PermissionRule } from "../permission/types";
 import { composeSkillTurn } from "../skills/compose";
 import type { SkillRegistry } from "../skills/registry";
 import type { WorkflowCommandController } from "../workflows/interactive-controller";
@@ -48,6 +50,13 @@ export interface AcpCommandServices {
   getInstructions?: () => string;
   memory?: { global: MemoryStore; project: MemoryStore };
   getPermissions?: (sessionId: string) => Promise<PermissionRules>;
+  getSessionCommandRules?: (sessionId: string) => PermissionRule[];
+  updateCommandApproval?: (
+    sessionId: string,
+    pattern: string,
+    scope: CommandApprovalScope,
+    remove: boolean,
+  ) => Promise<string>;
   getMcpStatus?: (sessionId: string) => McpServerStatus[];
   getMaxLoops?: (sessionId: string) => number;
   setMaxLoops?: (sessionId: string, value: number) => void;
@@ -149,7 +158,8 @@ export function createAcpCommandHandler(
       if (services.getPermissions) {
         commands.push({
           name: "permissions",
-          description: "Show the effective permission rules",
+          description: "Show rules or manage scoped command approvals",
+          input: { hint: "[allow|remove <session|project|global> <command pattern>]" },
         });
       }
       if (services.getMcpStatus) {
@@ -359,7 +369,32 @@ export function createAcpCommandHandler(
       }
 
       if (command.name === "permissions" && services.getPermissions) {
-        if (command.args) return { kind: "text", text: "usage: /permissions" };
+        if (command.args) {
+          const match = /^(allow|remove)\s+(session|project|global)\s+([\s\S]+)$/.exec(
+            command.args,
+          );
+          if (!match || !services.updateCommandApproval)
+            return {
+              kind: "text",
+              text: "usage: /permissions [allow|remove <session|project|global> <command pattern>]",
+            };
+          try {
+            return {
+              kind: "text",
+              text: await services.updateCommandApproval(
+                context.sessionId,
+                match[3]!,
+                match[2] as CommandApprovalScope,
+                match[1] === "remove",
+              ),
+            };
+          } catch (error) {
+            return {
+              kind: "text",
+              text: `Command approval unchanged: ${error instanceof Error ? error.message : String(error)}`,
+            };
+          }
+        }
         const rules = await services.getPermissions(context.sessionId);
         const format = (label: string, entries: PermissionRules["project"]) => {
           if (entries.length === 0) return `${label}: (none)`;
@@ -373,13 +408,15 @@ export function createAcpCommandHandler(
                 rule.maxOutputBytes !== undefined ? `output<=${rule.maxOutputBytes}B` : null,
                 rule.maxArtifactBytes !== undefined ? `artifacts<=${rule.maxArtifactBytes}B` : null,
               ].filter(Boolean);
+              if (rule.commandPattern !== undefined)
+                return `  ${rule.commandPattern} [cwd=${rule.commandCwd}; shell=${rule.commandShell}] -> ${rule.decision}`;
               return `  ${rule.tool} ${rule.argsPattern ?? "*"}${constraints.length ? ` [${constraints.join(", ")}]` : ""} -> ${rule.decision}`;
             })
             .join("\n")}`;
         };
         return {
           kind: "text",
-          text: `${format("project", rules.project)}\n${format("global", rules.global)}`,
+          text: `${format("project", rules.project)}\n${format("global", rules.global)}${services.getSessionCommandRules ? `\n${format("session commands", services.getSessionCommandRules(context.sessionId))}` : ""}`,
         };
       }
 
