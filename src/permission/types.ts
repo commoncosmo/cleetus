@@ -6,6 +6,10 @@ export interface PermissionRule {
   /** Matched against the serialised args string (the caller's argsSummary); trailing "*" =
    *  startsWith, else exact. */
   argsPattern?: string;
+  /** Argument-aware command pattern. Separate from legacy raw string prefixes. */
+  commandPattern?: string;
+  commandCwd?: string;
+  commandShell?: string;
   /** Absolute directory; matches a path-writing tool whose resolved target path is under it. */
   pathPrefix?: string;
   /** Client-job constraints. These fields match only `job_start` authorization metadata. */

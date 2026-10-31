@@ -8,6 +8,11 @@ on:
       - "src/config/**"
       - "src/editor/**"
       - "src/permission/**"
+      - "src/acp/**"
+      - "src/ui/tui/permission*"
+      - "src/ui/tui/app.tsx"
+      - "src/slash/**"
+      - "src/bin/cleetus.ts"
       - "src/memory/**"
       - "src/tools/glob.ts"
       - "src/tools/grep.ts"
@@ -19,6 +24,9 @@ on:
       - "tests/config/**"
       - "tests/memory/**"
       - "tests/permission/**"
+      - "tests/acp/**"
+      - "tests/slash/**"
+      - "tests/ui/tui/permission*"
       - "package.json"
       - "bun.lock"
       - ".github/workflows/windows-state.yml"
@@ -51,3 +59,5 @@ jobs:
       - run: bun install --frozen-lockfile --ignore-scripts
       - name: Native ACL, SQLite and Windows path regressions
         run: bun test ./tests/security/windows-private-state.test.ts ./tests/lib/windows-paths.test.ts ./tests/lib/db.test.ts ./tests/editor/words.test.ts ./tests/editor/launch.test.ts ./tests/security/secret-paths.test.ts ./tests/tools/glob.test.ts ./tests/permission/evaluator.test.ts ./tests/permission/cross-project.test.ts ./tests/tools/within-project.test.ts
+      - name: Scoped command approvals and ACP forms
+        run: bun test ./tests/permission/command-pattern.test.ts ./tests/acp/command-approvals.test.ts ./tests/acp/command-approvals-wire.test.ts ./tests/ui/tui/permission-grant.test.ts ./tests/ui/tui/permission-prompt.test.ts ./tests/slash/commands.test.ts

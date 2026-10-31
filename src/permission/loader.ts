@@ -1,15 +1,24 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { CleetusError } from "../lib/errors";
+import { comparablePath } from "../lib/paths";
 import { type ProjectTrustOptions, readTrustedProjectFile } from "../security/project-trust";
+import { validCommandPattern } from "./command-pattern";
+import { realpathWithMissingParents } from "./path-guard";
 import type { PermissionRule, PermissionRules } from "./types";
 
 const RuleSchema = z
   .object({
     tool: z.string().optional(),
     args_pattern: z.string().optional(),
+    command_pattern: z
+      .string()
+      .refine(validCommandPattern, "unsupported command pattern")
+      .optional(),
+    command_cwd: z.string().refine(isAbsolute, "command cwd must be absolute").optional(),
+    command_shell: z.string().min(1).optional(),
     path_prefix: z.string().optional(),
     job_kind: z.string().min(1).optional(),
     job_effect: z.enum(["read", "passive_network", "active_network", "write"]).optional(),
@@ -20,6 +29,32 @@ const RuleSchema = z
     decision: z.enum(["allow", "deny", "ask"]),
   })
   .superRefine((rule, ctx) => {
+    if (
+      rule.command_pattern !== undefined ||
+      rule.command_cwd !== undefined ||
+      rule.command_shell !== undefined
+    ) {
+      if (
+        rule.tool !== "bash" ||
+        !rule.command_pattern ||
+        !rule.command_cwd ||
+        !rule.command_shell ||
+        rule.args_pattern !== undefined ||
+        rule.path_prefix !== undefined ||
+        rule.job_kind !== undefined ||
+        rule.job_effect !== undefined ||
+        rule.job_target_pattern !== undefined ||
+        rule.max_timeout_ms !== undefined ||
+        rule.max_output_bytes !== undefined ||
+        rule.max_artifact_bytes !== undefined
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "command rules require bash, command_pattern, command_cwd and command_shell without other constraints",
+        });
+      }
+    }
     const hasJobConstraint =
       rule.job_kind !== undefined ||
       rule.job_effect !== undefined ||
@@ -75,6 +110,13 @@ async function readRules(path: string, approvedText?: string | null): Promise<Pe
   return parsed.data.rules.map((r) => ({
     tool: r.tool,
     argsPattern: r.args_pattern,
+    ...(r.command_pattern !== undefined
+      ? {
+          commandPattern: r.command_pattern,
+          commandCwd: r.command_cwd,
+          commandShell: r.command_shell,
+        }
+      : {}),
     pathPrefix: r.path_prefix,
     ...(r.job_kind !== undefined ? { jobKindPattern: r.job_kind } : {}),
     ...(r.job_effect !== undefined ? { jobEffect: r.job_effect } : {}),
@@ -109,16 +151,26 @@ export function makeRulesForCwd(
   globalWorkspaceDir?: string,
 ): (cwd: string) => Promise<PermissionRules> {
   const cache = new Map<string, Promise<PermissionRules>>();
-  return (cwd) => {
-    let pending = cache.get(cwd);
+  // All live sessions share global mutations, including revocation of a saved approval.
+  let globalRules: PermissionRule[] | undefined;
+  return async (cwd) => {
+    const canonical = await realpathWithMissingParents(cwd);
+    const key = comparablePath(canonical);
+    const workspaceKey = globalWorkspaceDir
+      ? comparablePath(await realpathWithMissingParents(globalWorkspaceDir))
+      : undefined;
+    let pending = cache.get(key);
     if (pending == null) {
       pending = loadPermissions({
         globalPath,
-        projectDir: cwd,
-        trustGlobalWorkspace: cwd === globalWorkspaceDir,
+        projectDir: canonical,
+        trustGlobalWorkspace: key === workspaceKey,
+      }).then((rules) => {
+        if (!globalRules) globalRules = rules.global;
+        return { project: rules.project, global: globalRules };
       });
-      pending.catch(() => cache.delete(cwd));
-      cache.set(cwd, pending);
+      pending.catch(() => cache.delete(key));
+      cache.set(key, pending);
     }
     return pending;
   };

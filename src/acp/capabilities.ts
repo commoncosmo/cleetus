@@ -3,7 +3,16 @@ export const ACP_PROTOCOL_VERSION = 1;
 export interface ClientCapabilities {
   fs?: { readTextFile?: boolean; writeTextFile?: boolean };
   terminal?: boolean;
+  elicitation?: {
+    form?: Record<string, unknown> | null;
+    url?: Record<string, unknown> | null;
+  } | null;
   _meta?: Record<string, unknown>;
+}
+
+export function clientSupportsForms(c: ClientCapabilities): boolean {
+  const form = c.elicitation?.form;
+  return form !== null && typeof form === "object" && !Array.isArray(form);
 }
 
 export interface ClientJobCapabilities {

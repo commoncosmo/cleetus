@@ -831,7 +831,26 @@ rules:
     decision: allow
 ```
 
-`args_pattern` uses prefix matching with `*` wildcards (`git status*` matches `git status -uno`).
+Legacy `args_pattern` supports a trailing `*` for raw prefix matching (`git status*`
+matches `git status -uno`); a star in the middle is literal.
+
+For reusable shell approvals, press **e** at the terminal permission prompt and edit
+the command pattern, then choose **s** for this session, **a** to save to the project,
+or **g** to save globally. The displayed rule includes its working directory and shell.
+For example, `bun test tests/*.test.ts --timeout 30000` permits different test files
+while keeping the timeout fixed. Nothing adds a wildcard automatically.
+
+These approvals use `command_pattern`, `command_cwd`, and `command_shell` instead
+of `args_pattern`. A star within an argument matches part of that argument; a
+standalone `*` matches zero or more arguments. Executables stay fixed, as do the
+subcommands of dispatchers such as Bun, npm, and Git. Commands containing shell
+chaining, substitutions, redirections, or unsupported escaping still prompt.
+Approving a program's arguments can authorize code execution through its scripts
+or options; it does not replace the execution boundary or destructive-operation guards.
+
+ACP offers suggested patterns, custom `/permissions` commands, and editable forms
+when supported by the client. Saved scoped command approvals work in both interfaces;
+see [ACP command approvals](docs/acp.md#command-approvals).
 
 Rules for `job_start` can additionally constrain `job_kind`, `job_effect`, `job_target_pattern`,
 `max_timeout_ms`, `max_output_bytes`, and `max_artifact_bytes`. These constraints are matched

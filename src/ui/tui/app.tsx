@@ -67,6 +67,7 @@ import type { EventLog } from "../../events/log";
 import { actorOf } from "../../events/types";
 import type { Event } from "../../events/types";
 import { sumUsage } from "../../events/usage";
+import type { CommandContext } from "../../permission/command-pattern";
 import { addAllowRule, addRule } from "../../permission/grant";
 import { type PermissionMode, completeModeLine } from "../../permission/modes";
 import { persistRule } from "../../permission/persist";
@@ -274,6 +275,7 @@ type OrchestrationStartOutcome = "ready" | "failed" | "cancelled" | "location-pe
 
 export type ResolveFn = (
   request: {
+    commandContext?: CommandContext;
     tool: string;
     argsSummary: string;
     details?: string;
@@ -285,6 +287,7 @@ export type ResolveFn = (
 ) => void;
 
 interface PendingPrompt {
+  commandContext?: CommandContext;
   tool: string;
   argsSummary: string;
   details?: string;
@@ -2073,12 +2076,18 @@ export function App(props: AppProps) {
     if (typeof action === "object" && action.kind === "grant") {
       const path =
         action.scope === "project" ? props.projectPermissionsPath : props.globalPermissionsPath;
-      await persistRule(
-        path,
-        { ...action.rule, decision: action.decision },
-        action.scope === "project" ? projectTrust : undefined,
+      if (action.scope !== "session")
+        await persistRule(
+          path,
+          { ...action.rule, decision: action.decision },
+          action.scope === "project" ? projectTrust : undefined,
+        );
+      addRule(
+        props.permissions,
+        action.scope === "session" ? "project" : action.scope,
+        action.rule,
+        action.decision,
       );
-      addRule(props.permissions, action.scope, action.rule, action.decision);
       promptRef.current = null;
       setPrompt(null);
       p.respond(action.decision, false);
@@ -2178,6 +2187,7 @@ export function App(props: AppProps) {
       {prompt && (
         <PermissionPrompt
           tool={prompt.tool}
+          commandContext={prompt.commandContext}
           summary={prompt.argsSummary}
           details={prompt.details}
           targetPath={prompt.targetPath}

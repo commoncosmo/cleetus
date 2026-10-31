@@ -1,5 +1,13 @@
+import { dirname, join } from "node:path";
 import { type JobRegistry, registerClientJobTools } from "../jobs";
 import type { McpServerStatus } from "../mcp/types";
+import { updateCommandApproval } from "../permission/command-approvals";
+import {
+  buildCommandRule,
+  commandShellIdentity,
+  resolveCommandContext,
+} from "../permission/command-pattern";
+import type { PermissionRule } from "../permission/types";
 import {
   type ClientCapabilities,
   buildInitializeResult,
@@ -105,8 +113,14 @@ export async function runAcp(opts: AcpRuntimeOptions): Promise<void> {
   });
 
   const sessions = new AcpSessions();
+  const commandRules = new Map<string, PermissionRule[]>();
+  const commandRulesForSession = (id: string) => {
+    if (!commandRules.has(id)) commandRules.set(id, []);
+    return commandRules.get(id)!;
+  };
   const mcpStatuses = new Map<string, McpServerStatus[]>();
   const { shutdownMcp, cancelAll } = registerSessionMethods(transport, {
+    commandRulesForSession,
     shellExecutable: opts.shellExecutable,
     runtime: bundle.runtime,
     log: bundle.log,
@@ -156,6 +170,37 @@ export async function runAcp(opts: AcpRuntimeOptions): Promise<void> {
       memory: bundle.memory,
       getPermissions: async (sessionId) =>
         bundle.rulesForCwd(sessions.cwd(sessionId) ?? bundle.projectDir),
+      getSessionCommandRules: commandRulesForSession,
+      updateCommandApproval: async (sessionId, pattern, scope, remove) => {
+        const projectDir = sessions.cwd(sessionId) ?? bundle.projectDir;
+        const context = await resolveCommandContext(
+          { command: pattern },
+          projectDir,
+          await commandShellIdentity(bundle.sandboxHolder.current),
+        );
+        const rule = context ? buildCommandRule(pattern, context) : null;
+        if (!rule)
+          throw new Error(
+            "Use a simple-command pattern with a fixed executable and dispatcher subcommand; shell expressions require approval each time.",
+          );
+        await updateCommandApproval(
+          {
+            rules: await bundle.rulesForCwd(projectDir),
+            sessionRules: commandRulesForSession(sessionId),
+            projectDir,
+            persistPath: join(projectDir, ".cleetus", "permissions.yaml"),
+            globalPath: bundle.globalConfigPath
+              ? join(dirname(bundle.globalConfigPath), "permissions.yaml")
+              : undefined,
+            globalConfigPath: bundle.globalConfigPath,
+            trustGlobalWorkspace: bundle.launchScope.kind === "global",
+          },
+          rule,
+          scope,
+          remove,
+        );
+        return `${remove ? "Removed" : "Allowed"} ${pattern} in ${context!.cwd} using ${context!.shell} (${scope}).`;
+      },
       getMcpStatus: (sessionId) => [
         ...bundle.configuredMcp.statuses,
         ...(mcpStatuses.get(sessionId) ?? []),

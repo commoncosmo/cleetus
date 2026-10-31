@@ -1,6 +1,7 @@
 import { Box, Text, useInput, useStdout } from "ink";
 import { useEffect, useState } from "react";
 import stringWidth from "string-width";
+import type { CommandContext } from "../../permission/command-pattern";
 import { PATH_READING_TOOLS, type PermissionRule } from "../../permission/types";
 import { useTheme } from "../theme";
 import { type Buffer, backspace, fromText, insert, left, right } from "./editor";
@@ -15,11 +16,12 @@ export type PermissionAction =
   | {
       kind: "grant";
       rule: Omit<PermissionRule, "decision">;
-      scope: "project" | "global";
+      scope: "session" | "project" | "global";
       decision: "allow" | "deny";
     };
 
 export interface PermissionPromptProps {
+  commandContext?: CommandContext;
   tool: string;
   summary: string;
   /** Complete instruction shown in a paged viewport; never used for permission-rule matching. */
@@ -42,9 +44,10 @@ export function editedPermissionGrant(
   tool: string,
   edited: string,
   decision: "allow" | "deny",
-  scope: "project" | "global",
+  scope: "session" | "project" | "global",
+  commandContext?: CommandContext,
 ): PermissionAction | null {
-  const rule = buildGrantRule(tool, edited);
+  const rule = buildGrantRule(tool, edited, commandContext);
   if (!rule) return null;
   return { kind: "grant", rule, scope, decision };
 }
@@ -91,6 +94,7 @@ export function permissionDetailPage(text: string, width: number, height: number
 
 export function PermissionPrompt({
   tool,
+  commandContext,
   summary,
   details,
   targetPath,
@@ -114,15 +118,24 @@ export function PermissionPrompt({
         detailPageIndex,
       )
     : null;
-  const broadenPrefill = defaultGrantInput(tool, summary, targetPath);
+  const broadenPrefill =
+    tool === "bash"
+      ? (commandContext?.command ?? null)
+      : defaultGrantInput(tool, summary, targetPath);
   const [step, setStep] = useState<"main" | "edit" | "scope">("main");
   const [buf, setBuf] = useState<Buffer>(() => fromText(broadenPrefill ?? ""));
   const [ruleDecision, setRuleDecision] = useState<"allow" | "deny">("allow");
+  const [error, setError] = useState<string>();
 
-  const resolveEdited = (scope: "project" | "global") => {
-    const action = editedPermissionGrant(tool, buf.text, ruleDecision, scope);
+  const resolveEdited = (scope: "session" | "project" | "global") => {
+    const action = editedPermissionGrant(tool, buf.text, ruleDecision, scope, commandContext);
     if (action) onResolve(action);
-    else setStep("main");
+    else {
+      setError(
+        "Use a matching simple-command pattern with a fixed executable and dispatcher subcommand; shell expressions require approval each time.",
+      );
+      setStep("edit");
+    }
   };
 
   const isReadTool = PATH_READING_TOOLS.has(tool);
@@ -191,7 +204,7 @@ export function PermissionPrompt({
     }
     // step === "scope"
     if (key.escape) setStep(broadenPrefill ? "edit" : "main");
-    else if (char === "a" || char === "g") {
+    else if (char === "a" || char === "g" || (tool === "bash" && char === "s")) {
       if (ruleDecision === "deny" && !broadenPrefill) {
         onResolve({
           kind: "grant",
@@ -199,7 +212,7 @@ export function PermissionPrompt({
           scope: char === "a" ? "project" : "global",
           decision: "deny",
         });
-      } else resolveEdited(char === "a" ? "project" : "global");
+      } else resolveEdited(char === "s" ? "session" : char === "a" ? "project" : "global");
     }
   });
 
@@ -250,10 +263,10 @@ export function PermissionPrompt({
           <Text color={t.dim}>
             {ruleDecision === "deny"
               ? tool === "bash"
-                ? "Deny commands starting with:"
+                ? "Deny command pattern (* matches arguments):"
                 : "Deny under:"
               : tool === "bash"
-                ? "Allow commands starting with:"
+                ? "Allow command pattern (* matches arguments):"
                 : isReadTool
                   ? "Allow reads under:"
                   : "Allow all edits under:"}
@@ -264,6 +277,7 @@ export function PermissionPrompt({
             <Text color={t.accent}>▏</Text>
             {buf.text.slice(buf.cursor)}
           </Text>
+          {error && <Text color={t.error}>{error}</Text>}
           <Text color={t.dim}>
             {ruleDecision === "deny"
               ? "[Enter] save project deny · [Ctrl+G] save global deny · [Esc] cancel"
@@ -277,7 +291,7 @@ export function PermissionPrompt({
             {ruleDecision === "deny"
               ? `Never allow: ${broadenPrefill ? buf.text : tool}`
               : tool === "bash"
-                ? `Allow bash where command starts with: ${buf.text}`
+                ? `Allow command pattern: ${buf.text} · cwd: ${commandContext?.cwd} · shell: ${commandContext?.shell}`
                 : isReadTool
                   ? `Allow reads under: ${buf.text}`
                   : `Allow edits under: ${buf.text}`}
@@ -285,12 +299,13 @@ export function PermissionPrompt({
           <Text>
             {ruleDecision === "deny" ? (
               <>
-                [<Text color={t.accent}>a</Text>] save project deny [
-                <Text color={t.accentAlt}>g</Text>] save global deny · [Esc] back
+                {tool === "bash" && "[s]ession "}[<Text color={t.accent}>a</Text>] save project deny
+                [<Text color={t.accentAlt}>g</Text>] save global deny · [Esc] back
               </>
             ) : (
               <>
-                [<Text color={t.accent}>a</Text>]llow project [<Text color={t.accentAlt}>g</Text>
+                {tool === "bash" && "[s]ession "}[<Text color={t.accent}>a</Text>]llow project [
+                <Text color={t.accentAlt}>g</Text>
                 ]lobal · [Esc] back
               </>
             )}

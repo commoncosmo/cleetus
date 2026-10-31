@@ -14,6 +14,9 @@ export function addRule(
       r.decision === decision &&
       r.tool === partial.tool &&
       r.argsPattern === partial.argsPattern &&
+      r.commandPattern === partial.commandPattern &&
+      r.commandCwd === partial.commandCwd &&
+      r.commandShell === partial.commandShell &&
       r.pathPrefix === partial.pathPrefix &&
       r.jobKindPattern === partial.jobKindPattern &&
       r.jobEffect === partial.jobEffect &&

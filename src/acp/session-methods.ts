@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { resolveAttachmentPaths, storeImage } from "../agent/attachments";
 import type { AgentRuntime } from "../agent/runtime";
 import type { SessionHistoryStore } from "../agent/session-history";
@@ -9,6 +9,8 @@ import type { EvidenceRegistry } from "../evidence";
 import type { JobRegistry } from "../jobs";
 import { McpManager, createStdioConnection } from "../mcp";
 import type { McpServerStatus } from "../mcp/types";
+import { commandShellIdentity } from "../permission/command-pattern";
+import type { PermissionRule } from "../permission/types";
 import type { PermissionRules } from "../permission/types";
 import type { ImageRef } from "../providers/types";
 import { gateVision } from "../providers/vision";
@@ -17,6 +19,7 @@ import type { ToolRegistry } from "../tools/registry";
 import {
   type ClientCapabilities,
   clientJobCapabilities,
+  clientSupportsForms,
   clientSupportsFsRead,
   clientSupportsFsWrite,
   clientSupportsTerminal,
@@ -75,6 +78,7 @@ function sessionModeState(modeId: string): {
 }
 
 export interface SessionMethodDeps {
+  commandRulesForSession?: (sessionId: string) => PermissionRule[];
   shellExecutable?: string;
   runtime: AgentRuntime;
   log: EventLog;
@@ -224,7 +228,9 @@ export function registerSessionMethods(
   // One PermissionClient per connection — routes `requestPermission` calls to the ACP client.
   const permissionClient: PermissionClient = {
     requestPermission: (req) =>
-      transport.request("session/request_permission", req) as Promise<{
+      transport.request("session/request_permission", req, {
+        signal: abortControllers.get(req.sessionId)?.signal,
+      }) as Promise<{
         outcome: { outcome: "selected"; optionId: string } | { outcome: "cancelled" };
       }>,
   };
@@ -435,13 +441,62 @@ export function registerSessionMethods(
             });
           }
           const grants = grantsBySession.get(sessionId)!;
+          if (!grants.commandRules) grants.commandRules = [];
           permissionRouter.current = makeAcpResolvePermission(
-            permissionClient,
+            {
+              ...permissionClient,
+              ...(clientSupportsForms(clientCapsRef.current)
+                ? {
+                    elicitCommandPattern: ({
+                      sessionId,
+                      toolCallId,
+                      pattern,
+                    }: { sessionId: string; toolCallId?: string; pattern: string }) =>
+                      transport.request(
+                        "elicitation/create",
+                        {
+                          sessionId,
+                          ...(toolCallId ? { toolCallId } : {}),
+                          mode: "form",
+                          message:
+                            "Edit a reusable command approval. This collects a rule; a separate permission prompt confirms it. Shell expressions are not supported.",
+                          requestedSchema: {
+                            type: "object",
+                            properties: {
+                              pattern: {
+                                type: "string",
+                                title: "Command pattern",
+                                default: pattern,
+                              },
+                              scope: {
+                                type: "string",
+                                title: "Lifetime and storage",
+                                enum: ["session", "project", "global"],
+                                default: "session",
+                              },
+                            },
+                            required: ["pattern", "scope"],
+                          },
+                        },
+                        { signal: ac.signal },
+                      ) as Promise<{ action: string; content?: unknown }>,
+                  }
+                : {}),
+            },
             sessionId,
             grants,
             sessionCwd,
             {
               rules: sessionRules,
+              commandRules: deps.commandRulesForSession?.(sessionId) ?? grants.commandRules,
+              shellIdentity: async () => {
+                const activeSandbox = sandboxHolder?.current ?? fallbackSandbox;
+                return activeSandbox ? commandShellIdentity(activeSandbox) : "";
+              },
+              globalPath: deps.globalConfigPath
+                ? join(dirname(deps.globalConfigPath), "permissions.yaml")
+                : undefined,
+              signal: ac.signal,
               persistPath: join(sessionCwd, ".cleetus", "permissions.yaml"),
               globalConfigPath: deps.globalConfigPath,
               trustGlobalWorkspace: deps.trustGlobalWorkspace,
