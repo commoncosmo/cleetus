@@ -10,7 +10,7 @@ import {
   makeAcpResolvePermission,
 } from "../../src/acp/permission";
 import { updateCommandApproval } from "../../src/permission/command-approvals";
-import { buildCommandRule } from "../../src/permission/command-pattern";
+import { buildCommandRule, resolveCommandContext } from "../../src/permission/command-pattern";
 import { loadPermissions, makeRulesForCwd } from "../../src/permission/loader";
 import type { PermissionRule, PermissionRules } from "../../src/permission/types";
 import { buildSkillRegistry } from "../../src/skills/registry";
@@ -80,8 +80,14 @@ test("ACP suggested patterns are session-scoped, reusable, and checked against d
 });
 
 test("saved scoped approvals work in ACP while legacy broad allows still prompt", async () => {
-  const root = fixture();
-  const context = { command: "bun test a", cwd: root, shell };
+  const parent = fixture();
+  const target = join(parent, "actual");
+  mkdirSync(target);
+  const root = join(parent, "alias");
+  symlinkSync(target, root, process.platform === "win32" ? "junction" : "dir");
+  // Windows CI may expose a short-name TEMP path. Construct the saved approval through the
+  // same canonical context resolver as CLI/ACP rather than storing an unresolved fixture path.
+  const context = (await resolveCommandContext({ command: "bun test a" }, root, shell))!;
   const saved = { ...buildCommandRule("bun test *", context)!, decision: "allow" as const };
   let prompts = 0;
   const client: PermissionClient = {
