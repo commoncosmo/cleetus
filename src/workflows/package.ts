@@ -1,5 +1,5 @@
 import { lstatSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
-import { basename, join, relative, sep } from "node:path";
+import { basename, isAbsolute, join, relative, sep } from "node:path";
 import { renderWorkflowSkillAdapter } from "./adapter";
 import { workflowExecutionHash, workflowPackageHash } from "./hashes";
 import { type WorkflowManifest, parseWorkflowManifest } from "./parse";
@@ -20,7 +20,7 @@ export interface WorkflowPackage {
 
 function inside(root: string, target: string): boolean {
   const rel = relative(root, target);
-  return rel === "" || (!rel.startsWith(`..${sep}`) && rel !== "..");
+  return rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel));
 }
 
 function readPackageFiles(root: string): Array<{ path: string; content: string }> {

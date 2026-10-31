@@ -1,6 +1,7 @@
 import { lstat, realpath } from "node:fs/promises";
-import { dirname, relative, resolve, sep } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 import { protectedControlPath } from "../agent/scope-guard";
+import { comparablePath, isPathWithin } from "../lib/paths";
 import { pathEscapesProject, realpathWithMissingParents } from "../permission/path-guard";
 import { refuseIfSecretPath } from "./read-guard";
 import type { ToolContext, ToolResult } from "./types";
@@ -32,7 +33,7 @@ export async function refuseIfOutsideProject(
   // Refuse symlink components below the project root, including dangling leaf links.
   // Callers must use the actual file path; a link must never hide write authority.
   let current = resolve(root, relative(resolve(ctx.projectDir), target));
-  while (current !== root && current.startsWith(root + sep)) {
+  while (comparablePath(current) !== comparablePath(root) && isPathWithin(root, current)) {
     try {
       if ((await lstat(current)).isSymbolicLink()) {
         return {

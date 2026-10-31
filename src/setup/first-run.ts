@@ -109,14 +109,14 @@ export function writeDetectedConfig(
     default_provider: first?.type,
     default_model: first?.models[0],
   };
-  privateDirectory(globalDir);
+  privateDirectory(globalDir, { excludeChildren: ["workspace"] });
   writePrivateFile(path, stringifyYaml(doc));
   return path;
 }
 
 /** Write a commented starter config.yaml + instructions.md (write-if-absent). Returns the config path. */
 export function scaffoldConfig(globalDir: string): string {
-  privateDirectory(globalDir);
+  privateDirectory(globalDir, { excludeChildren: ["workspace"] });
   const configPath = join(globalDir, "config.yaml");
   if (!existsSync(configPath)) writePrivateFile(configPath, SCAFFOLD_CONFIG);
   const instrPath = join(globalDir, "instructions.md");

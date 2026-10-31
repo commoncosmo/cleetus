@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { join } from "node:path";
 import {
   SECRET_DIRS,
   SECRET_FILES,
@@ -16,8 +17,11 @@ describe("secret-paths", () => {
   });
 
   it("expands against a home dir", () => {
-    expect(secretDirPaths(HOME)).toContain("/home/u/.ssh");
-    expect(secretFilePaths(HOME)).toEqual(["/home/u/.netrc"]);
+    expect(secretDirPaths(HOME)).toContain(join(HOME, ".ssh"));
+    expect(secretFilePaths(HOME)).toEqual([
+      join(HOME, ".netrc"),
+      ...(process.platform === "win32" ? [join(HOME, "_netrc")] : []),
+    ]);
   });
 
   it("empty home expands to nothing", () => {

@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { parse } from "yaml";
+import { privateDirectory } from "../security/private-state";
 import { type UserPathOptions, userPaths } from "./user-paths";
 
 /** Move whole directories, including SQLite WAL sidecars. Never merge or overwrite data. */
@@ -83,6 +84,7 @@ export function migrateWindowsData(
       moveDirectory(move.from, move.to);
       completed.push(move);
     }
+    privateDirectory(paths.nativeRoot, { excludeChildren: ["workspace"] });
   } catch (error) {
     const rollbackErrors: string[] = [];
     for (const move of completed.reverse()) {

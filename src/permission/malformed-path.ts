@@ -1,5 +1,6 @@
 import { stat } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { comparablePath, isPathWithin } from "../lib/paths";
 import { pathEscapesProject, rawToolPath } from "./path-guard";
 
 export interface MalformedPathHit {
@@ -47,9 +48,15 @@ export async function detectMalformedProjectPath(
 
   const projectRoot = resolve(projectDir);
   const base = basename(projectRoot);
-  const rawLower = rawPath.toLowerCase();
-  const embeddedRootSignal = rawPath.indexOf(projectRoot) > 0;
-  const segments = rawPath.split("/").filter((s) => s.length > 0);
+  const normalized = process.platform === "win32" ? rawPath.replaceAll("\\", "/") : rawPath;
+  const normalizedRoot =
+    process.platform === "win32" ? projectRoot.replaceAll("\\", "/") : projectRoot;
+  const rawLower = normalized.toLowerCase();
+  const embeddedRootSignal =
+    process.platform === "win32"
+      ? rawLower.indexOf(normalizedRoot.toLowerCase()) > 0
+      : rawPath.indexOf(projectRoot) > 0;
+  const segments = normalized.split("/").filter((s) => s.length > 0);
 
   // (B) Recover the longest trailing segment-run whose parent dir exists under the root.
   for (let k = segments.length - 1; k >= 1; k--) {
@@ -58,7 +65,7 @@ export async function detectMalformedProjectPath(
     const tail = tailSegs.join("/");
     const candidate = join(projectRoot, tail);
     // Stay inside the project (defends against any residual climb).
-    if (candidate !== projectRoot && !candidate.startsWith(projectRoot + sep)) continue;
+    if (!isPathWithin(projectRoot, candidate)) continue;
     if (!(await statDir(dirname(candidate)))) continue;
 
     // (C) Anchor: "<base>/<tail>" appears in the raw path (case-insensitive) — the model
@@ -79,10 +86,13 @@ export async function detectMalformedProjectPath(
     const baseSegIdx = segments.length - k - 1;
     const baseSeg = baseSegIdx >= 0 ? (segments[baseSegIdx] ?? "") : "";
     const baseSegHasNoise = /[ \t|]/.test(baseSeg);
-    const parentPrefix = isAbsolute(rawPath)
-      ? `/${segments.slice(0, baseSegIdx).join("/")}`
-      : segments.slice(0, baseSegIdx).join("/");
-    const dirnameMatch = parentPrefix === dirname(projectRoot);
+    const prefix = segments.slice(0, baseSegIdx).join("/");
+    const parentPrefix = normalized.startsWith("//")
+      ? `//${prefix}`
+      : normalized.startsWith("/")
+        ? `/${prefix}`
+        : prefix;
+    const dirnameMatch = comparablePath(parentPrefix) === comparablePath(dirname(projectRoot));
     if (!embeddedRootSignal && !(baseSegHasNoise && dirnameMatch)) continue;
 
     // No-op guard: a suggestion identical to the resolved raw path is not a hit.
@@ -108,8 +118,14 @@ export async function detectMalformedToolPath(
   // an absolute write may be an intentional request to create a new external location. Refuse
   // the typo before permission handling only when the absolute parent does not exist while the
   // reconstructed in-project parent does.
-  if (tool === "read_file" && isAbsolute(raw) && !raw.slice(1).split("/").includes("..")) {
-    const candidate = join(resolve(projectDir), raw.slice(1));
+  const normalized = process.platform === "win32" ? raw.replaceAll("\\", "/") : raw;
+  if (
+    tool === "read_file" &&
+    normalized.startsWith("/") &&
+    !normalized.startsWith("//") &&
+    !normalized.slice(1).split("/").includes("..")
+  ) {
+    const candidate = join(resolve(projectDir), normalized.slice(1));
     if (!(await statDir(dirname(raw))) && (await statDir(dirname(candidate)))) {
       return { suggestion: candidate };
     }

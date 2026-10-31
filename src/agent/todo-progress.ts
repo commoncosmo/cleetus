@@ -12,6 +12,7 @@ function cleanInline(value: string): string {
   return value
     .trim()
     .replace(/^`|`$/g, "")
+    .replaceAll("\\", "/")
     .replace(/^\.\//, "")
     .replace(/[),.;:]+$/, "");
 }
@@ -21,6 +22,7 @@ function looksLikeProjectPath(value: string): boolean {
     value.length > 0 &&
     !value.startsWith("/") &&
     !value.startsWith("../") &&
+    !/^[a-z]:/i.test(value) &&
     !value.includes("://") &&
     !/[\s*{}[\]]/.test(value) &&
     (value.includes("/") || /^\.[\w.-]+$/.test(value) || /\.[a-z0-9]{1,8}$/i.test(value))

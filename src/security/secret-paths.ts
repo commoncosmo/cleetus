@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { join, sep } from "node:path";
+import { comparablePath, isPathWithin, pathApi } from "../lib/paths";
 
 /** Single source of truth for secret locations under $HOME. Consumed by BOTH the OS sandbox
  *  policy (src/sandbox/policy.ts — read-denies these for bash subprocesses) and the in-process
@@ -7,12 +7,30 @@ import { join, sep } from "node:path";
 export const SECRET_DIRS = [".ssh", ".aws", ".gnupg", ".config/gcloud", ".kube", ".docker"];
 export const SECRET_FILES = [".netrc"];
 
-export function secretDirPaths(home: string): string[] {
-  return home ? SECRET_DIRS.map((d) => join(home, d)) : [];
+export interface SecretPathOptions {
+  platform?: NodeJS.Platform;
+  env?: Record<string, string | undefined>;
 }
 
-export function secretFilePaths(home: string): string[] {
-  return home ? SECRET_FILES.map((f) => join(home, f)) : [];
+export function secretDirPaths(home: string, options: SecretPathOptions = {}): string[] {
+  if (!home) return [];
+  const platform = options.platform ?? process.platform;
+  const api = pathApi(platform);
+  const paths = SECRET_DIRS.map((d) => api.join(home, d));
+  if (platform === "win32") {
+    const roaming = (options.env ?? process.env).APPDATA || api.join(home, "AppData", "Roaming");
+    paths.push(api.join(roaming, "gcloud"), api.join(roaming, "gnupg"));
+  }
+  return paths;
+}
+
+export function secretFilePaths(home: string, options: SecretPathOptions = {}): string[] {
+  const platform = options.platform ?? process.platform;
+  return home
+    ? [...SECRET_FILES, ...(platform === "win32" ? ["_netrc"] : [])].map((f) =>
+        pathApi(platform).join(home, f),
+      )
+    : [];
 }
 
 // Secret dir/file locations are session-constant (derived from $HOME), so their canonical form
@@ -36,15 +54,25 @@ function canonicalOf(p: string): string {
 /** True when `resolvedPath` (already symlink-resolved by the caller) is a secret file, a secret
  *  dir, or inside one. Secret locations are checked in both literal and canonical form so a
  *  symlinked $HOME cannot dodge the match. */
-export function isSecretPath(resolvedPath: string, home: string): boolean {
+export function isSecretPath(
+  resolvedPath: string,
+  home: string,
+  options: SecretPathOptions = {},
+): boolean {
   if (!home) return false;
-  for (const dir of secretDirPaths(home)) {
+  const platform = options.platform ?? process.platform;
+  for (const dir of secretDirPaths(home, options)) {
     for (const d of new Set([dir, canonicalOf(dir)])) {
-      if (resolvedPath === d || resolvedPath.startsWith(d + sep)) return true;
+      if (isPathWithin(d, resolvedPath, platform)) return true;
     }
   }
-  for (const file of secretFilePaths(home)) {
-    if (resolvedPath === file || resolvedPath === canonicalOf(file)) return true;
+  for (const file of secretFilePaths(home, options)) {
+    if (
+      [file, canonicalOf(file)].some(
+        (f) => comparablePath(resolvedPath, platform) === comparablePath(f, platform),
+      )
+    )
+      return true;
   }
   return false;
 }

@@ -369,7 +369,7 @@ export async function buildAcpRuntime(options: AcpRuntimeOptions): Promise<AcpRu
 
   privateDirectory(join(projectDir, ".cleetus"));
   privateDirectory(join(opts.projectHome ?? projectDir, ".cleetus"));
-  privateDirectory(globalDir);
+  privateDirectory(globalDir, { excludeChildren: ["workspace"] });
   privateFile(GLOBAL_CONFIG);
   privateFile(join(projectDir, ".cleetus", "config.yaml"));
   const sessionsDbPath = resolveSessionDbPath(projectDir, opts.sessionDb);
