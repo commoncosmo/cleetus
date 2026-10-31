@@ -176,21 +176,24 @@ it("exact shell approvals reject compound commands, substitutions and changed cw
   expect(prompts).toBe(7);
 });
 
-it("creates and tightens private files without changing source directories", async () => {
-  const state = join(project, ".cleetus");
-  const prior = (await stat(project)).mode & 0o777;
-  writePrivateFile(join(project, "selected-config.yaml"), "synthetic");
-  expect((await stat(project)).mode & 0o777).toBe(prior);
-  expect((await stat(join(project, "selected-config.yaml"))).mode & 0o777).toBe(0o600);
-  privateDirectory(state);
-  writePrivateFile(join(state, "config.yaml"), "fixture");
-  const path = join(state, "state.db");
-  await writeFile(path, "");
-  const db = openDatabase(path);
-  db.exec("CREATE TABLE fixture (value TEXT); INSERT INTO fixture VALUES ('synthetic')");
-  for (const file of [path, `${path}-wal`, `${path}-shm`, join(state, "config.yaml")])
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
-  db.close();
-  expect((await stat(state)).mode & 0o777).toBe(0o700);
-  expect((await stat(project)).mode & 0o777).toBe(prior);
-});
+it.skipIf(process.platform === "win32")(
+  "creates and tightens private files without changing source directories",
+  async () => {
+    const state = join(project, ".cleetus");
+    const prior = (await stat(project)).mode & 0o777;
+    writePrivateFile(join(project, "selected-config.yaml"), "synthetic");
+    expect((await stat(project)).mode & 0o777).toBe(prior);
+    expect((await stat(join(project, "selected-config.yaml"))).mode & 0o777).toBe(0o600);
+    privateDirectory(state);
+    writePrivateFile(join(state, "config.yaml"), "fixture");
+    const path = join(state, "state.db");
+    await writeFile(path, "");
+    const db = openDatabase(path);
+    db.exec("CREATE TABLE fixture (value TEXT); INSERT INTO fixture VALUES ('synthetic')");
+    for (const file of [path, `${path}-wal`, `${path}-shm`, join(state, "config.yaml")])
+      expect((await stat(file)).mode & 0o777).toBe(0o600);
+    db.close();
+    expect((await stat(state)).mode & 0o777).toBe(0o700);
+    expect((await stat(project)).mode & 0o777).toBe(prior);
+  },
+);

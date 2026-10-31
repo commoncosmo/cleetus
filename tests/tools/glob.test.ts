@@ -19,6 +19,12 @@ afterEach(async () => {
 
 describe("GlobTool", () => {
   const tool = new GlobTool();
+  it.skipIf(process.platform !== "win32")("accepts native backslashes in patterns", async () => {
+    const result = await tool.run({ pattern: "src\\*.ts" }, ctx());
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("a.ts");
+    expect(result.output).toContain("b.ts");
+  });
   it("finds files by pattern", async () => {
     const r = await tool.run({ pattern: "src/*.ts" }, ctx());
     expect(r.ok).toBe(true);

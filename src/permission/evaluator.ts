@@ -1,4 +1,4 @@
-import { sep } from "node:path";
+import { isPathWithin } from "../lib/paths";
 import type { ToolAuthorization } from "../tools/types";
 import {
   BUILTIN_DEFAULTS,
@@ -70,8 +70,7 @@ function jobAuthorizationMatches(
 }
 
 export function pathUnder(target: string, prefix: string): boolean {
-  const p = prefix.endsWith(sep) ? prefix.slice(0, -1) : prefix;
-  return target === p || target.startsWith(p + sep);
+  return isPathWithin(prefix, target);
 }
 
 /** Scan the persisted/live rules only. In the first layer with any match, a deny wins; otherwise

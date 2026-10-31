@@ -1,4 +1,8 @@
-export function parseEditorWords(value: string, label: string): string[] {
+export function parseEditorWords(
+  value: string,
+  label: string,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
   const words: string[] = [];
   let word = "";
   let started = false;
@@ -12,7 +16,7 @@ export function parseEditorWords(value: string, label: string): string[] {
       escaping = false;
       continue;
     }
-    if (character === "\\" && quote !== "'") {
+    if (character === "\\" && quote !== "'" && platform !== "win32") {
       escaping = true;
       started = true;
       continue;

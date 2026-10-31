@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { ApplyPatchTool } from "../../src/tools/apply-patch/tool";
 import { EditFileTool } from "../../src/tools/edit-file";
 import { GlobTool } from "../../src/tools/glob";
@@ -47,7 +47,7 @@ describe("refuseIfSecretPath", () => {
 
   it("refuses ../ traversal that lands in a secret dir", async () => {
     // project and home are sibling temp dirs; walk from project into home/.ssh
-    const rel = join("..", home.split("/").pop()!, ".ssh", "id_rsa");
+    const rel = join("..", basename(home), ".ssh", "id_rsa");
     const r = await refuseIfSecretPath(rel, ctx());
     expect(r?.errorCode).toBe("SECRET_PATH");
   });
@@ -102,7 +102,7 @@ describe("read tools refuse secret paths end-to-end", () => {
 
 describe("glob/grep pattern traversal is guarded (not just cwd/path)", () => {
   it("glob pattern traversing into a secret dir is refused even though dot:false would hide it", async () => {
-    const homeBase = home.split("/").pop()!;
+    const homeBase = basename(home);
     const r = await new GlobTool().run({ pattern: `../${homeBase}/.ssh/*`, cwd: project }, ctx());
     expect(r.ok).toBe(false);
     expect(r.errorCode).toBe("SECRET_PATH");
@@ -116,7 +116,7 @@ describe("glob/grep pattern traversal is guarded (not just cwd/path)", () => {
   });
 
   it("grep file_pattern traversing into a secret dir is refused", async () => {
-    const homeBase = home.split("/").pop()!;
+    const homeBase = basename(home);
     const r = await new GrepTool().run(
       { pattern: "KEY", file_pattern: `../${homeBase}/.ssh/*`, path: project },
       ctx(),
@@ -179,6 +179,19 @@ describe("write tools refuse secret-path pre-reads", () => {
   it("write_file to a normal in-project path still works", async () => {
     const r = await new WriteFileTool().run({ path: "ok.txt", content: "updated" }, ctx());
     expect(r.ok).toBe(true);
+  });
+
+  it("absolute secret patterns stay protected even when an explicit project base is supplied", async () => {
+    const pattern = join(home, ".ssh", "*");
+    const glob = await new GlobTool().run({ pattern, cwd: project }, ctx());
+    expect(glob.ok).toBe(false);
+    expect(glob.errorCode).toBe("SECRET_PATH");
+    const grep = await new GrepTool().run(
+      { pattern: "SECRET", path: project, file_pattern: pattern },
+      ctx(),
+    );
+    expect(grep.ok).toBe(false);
+    expect(grep.errorCode).toBe("SECRET_PATH");
   });
 
   it("multi_edit on an in-project symlink pointing at a secret refuses", async () => {

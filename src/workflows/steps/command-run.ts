@@ -1,5 +1,5 @@
 import { realpathSync, statSync } from "node:fs";
-import { relative, resolve, sep } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { execProgram } from "../../sandbox/program";
 import type { Sandbox } from "../../sandbox/types";
 import { quoteWorkflowCommand } from "../command-quote";
@@ -24,7 +24,7 @@ export interface CommandRunStepDependencies {
 
 function inside(root: string, target: string): boolean {
   const path = relative(root, target);
-  return path === "" || (path !== ".." && !path.startsWith(`..${sep}`));
+  return path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path));
 }
 
 function bounded(value: string, maximum: number, stream: string): string {

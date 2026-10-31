@@ -1,9 +1,9 @@
 import { closeSync, existsSync, lstatSync, mkdirSync, openSync, realpathSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
+import { isPathWithin } from "../lib/paths";
 
 function inside(root: string, target: string): boolean {
-  const rel = relative(root, target);
-  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`));
+  return isPathWithin(root, target);
 }
 
 /**

@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { type SpawnEditor, editorEnvironment, launchEditor } from "../../src/editor/launch";
 
 describe("launchEditor", () => {
   test("prefers EDITOR and falls back to VISUAL only when EDITOR is unset", async () => {
     const calls: string[][] = [];
     const common = {
-      cwd: "/work/project",
+      cwd: resolve("/work/project"),
       args: "",
       exists: () => true,
       realpath: (path: string) => path,
@@ -32,9 +32,9 @@ describe("launchEditor", () => {
     });
 
     expect(calls).toEqual([
-      ["vim", "-f", "/work/project"],
-      ["code", "--wait", "/work/project"],
-      ["nvim", "/work/project"],
+      ["vim", "-f", resolve("/work/project")],
+      ["code", "--wait", resolve("/work/project")],
+      ["nvim", resolve("/work/project")],
     ]);
   });
 
@@ -46,22 +46,24 @@ describe("launchEditor", () => {
     };
 
     const result = await launchEditor({
-      cwd: "/work/project",
+      cwd: resolve("/work/project"),
       args: "",
       editor: "code --wait",
-      exists: (path) => path === "/work/project",
+      exists: (path) => path === resolve("/work/project"),
       realpath: (path) => path,
       spawn,
     });
 
-    expect(result.targets).toEqual(["/work/project"]);
-    expect(calls).toEqual([{ argv: ["code", "--wait", "/work/project"], cwd: "/work/project" }]);
+    expect(result.targets).toEqual([resolve("/work/project")]);
+    expect(calls).toEqual([
+      { argv: ["code", "--wait", resolve("/work/project")], cwd: resolve("/work/project") },
+    ]);
   });
 
   test("resolves multiple quoted paths and strips the argument separator", async () => {
     let argv: string[] = [];
     await launchEditor({
-      cwd: "/work/project",
+      cwd: resolve("/work/project"),
       args: `-- "docs/with spaces" /tmp/other`,
       confirmOutsideProject: true,
       authorizeOutsideProject: async () => true,
@@ -77,16 +79,16 @@ describe("launchEditor", () => {
     expect(argv).toEqual([
       "/Applications/Editor App/bin/editor",
       "--foreground",
-      "/work/project/docs/with spaces",
-      "/tmp/other",
+      resolve("/work/project/docs/with spaces"),
+      resolve("/tmp/other"),
     ]);
   });
 
   test("accepts feature-resolved targets without serializing them through command text", async () => {
     const calls: string[][] = [];
     await launchEditor({
-      cwd: "/work/project",
-      targets: ["/work/project/path with spaces"],
+      cwd: resolve("/work/project"),
+      targets: [resolve("/work/project/path with spaces")],
       editor: "vim",
       exists: () => true,
       spawn: (argv) => {
@@ -95,7 +97,7 @@ describe("launchEditor", () => {
       },
     });
 
-    expect(calls).toEqual([["vim", "/work/project/path with spaces"]]);
+    expect(calls).toEqual([["vim", resolve("/work/project/path with spaces")]]);
   });
 
   test("creates one empty project file before opening it", async () => {
@@ -162,9 +164,9 @@ describe("launchEditor", () => {
   test("rejects mixing raw arguments with resolved targets", async () => {
     expect(
       launchEditor({
-        cwd: "/work/project",
+        cwd: resolve("/work/project"),
         args: "README.md",
-        targets: ["/work/project/README.md"],
+        targets: [resolve("/work/project/README.md")],
         editor: "vim",
       }),
     ).rejects.toThrow("cannot combine raw arguments with resolved targets");
@@ -173,7 +175,7 @@ describe("launchEditor", () => {
   test("reports unset configuration, missing targets, launch failures, and nonzero exits", async () => {
     await expect(
       launchEditor({
-        cwd: "/work",
+        cwd: resolve("/work"),
         args: "",
         editor: null,
         exists: () => true,
@@ -183,17 +185,17 @@ describe("launchEditor", () => {
 
     await expect(
       launchEditor({
-        cwd: "/work",
+        cwd: resolve("/work"),
         args: "missing",
         editor: "vim",
         exists: () => false,
         spawn: () => ({ exited: Promise.resolve(0) }),
       }),
-    ).rejects.toThrow("edit target does not exist: /work/missing");
+    ).rejects.toThrow(`edit target does not exist: ${resolve("/work/missing")}`);
 
     await expect(
       launchEditor({
-        cwd: "/work",
+        cwd: resolve("/work"),
         args: "",
         editor: "missing-editor",
         exists: () => true,
@@ -206,7 +208,7 @@ describe("launchEditor", () => {
 
     await expect(
       launchEditor({
-        cwd: "/work",
+        cwd: resolve("/work"),
         args: "",
         editor: "vim",
         exists: () => true,
@@ -219,7 +221,7 @@ describe("launchEditor", () => {
   test("removes its temporary SIGINT listener after success and failure", async () => {
     const before = process.listenerCount("SIGINT");
     await launchEditor({
-      cwd: "/work",
+      cwd: resolve("/work"),
       args: "",
       editor: "vim",
       exists: () => true,
@@ -230,7 +232,7 @@ describe("launchEditor", () => {
 
     await expect(
       launchEditor({
-        cwd: "/work",
+        cwd: resolve("/work"),
         args: "",
         editor: "vim",
         exists: () => true,
@@ -245,8 +247,8 @@ describe("launchEditor", () => {
     let spawned = false;
     await expect(
       launchEditor({
-        cwd: "/work/project",
-        args: "/outside/secret",
+        cwd: resolve("/work/project"),
+        args: resolve("/outside/secret"),
         editor: "vim",
         exists: () => true,
         realpath: (path) => path,
@@ -260,8 +262,8 @@ describe("launchEditor", () => {
 
     const approvals: string[][] = [];
     await launchEditor({
-      cwd: "/work/project",
-      args: "/outside/secret",
+      cwd: resolve("/work/project"),
+      args: resolve("/outside/secret"),
       confirmOutsideProject: true,
       authorizeOutsideProject: async (request) => {
         approvals.push(request.targets);
@@ -275,14 +277,14 @@ describe("launchEditor", () => {
         return { exited: Promise.resolve(0) };
       },
     });
-    expect(approvals).toEqual([["/outside/secret"]]);
+    expect(approvals).toEqual([[resolve("/outside/secret")]]);
     expect(spawned).toBe(true);
   });
 
   test("fails closed when outside-project authorization is denied or unavailable", async () => {
     const base = {
-      cwd: "/work/project",
-      args: "/outside/secret",
+      cwd: resolve("/work/project"),
+      args: resolve("/outside/secret"),
       confirmOutsideProject: true,
       editor: "vim",
       exists: () => true,
@@ -301,7 +303,7 @@ describe("launchEditor", () => {
   test("rejects shell-command interpreters and strips credential-like environment values", async () => {
     await expect(
       launchEditor({
-        cwd: "/work",
+        cwd: resolve("/work"),
         args: "",
         editor: "sh -c",
         exists: () => true,
@@ -311,7 +313,7 @@ describe("launchEditor", () => {
 
     await expect(
       launchEditor({
-        cwd: "/work",
+        cwd: resolve("/work"),
         args: "",
         env: { VISUAL: "bash -c" },
         exists: () => true,

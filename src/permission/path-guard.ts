@@ -1,5 +1,6 @@
 import { realpath } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { isPathWithin } from "../lib/paths";
 import { patchTargetPath } from "../tools/apply-patch/parse";
 import { PATH_WRITING_TOOLS } from "./types";
 
@@ -43,7 +44,7 @@ export async function pathEscapesProject(rawPath: string, projectDir: string): P
   }
   const target = isAbsolute(rawPath) ? rawPath : resolve(projectRoot, rawPath);
   const resolvedDir = await realpathWithMissingParents(target);
-  return resolvedDir !== projectRoot && !resolvedDir.startsWith(projectRoot + sep);
+  return !isPathWithin(projectRoot, resolvedDir);
 }
 
 /** Resolve `rawDir` against `projectDir` (realpath'd, symlink-aware) and report whether the
@@ -59,7 +60,7 @@ export async function dirEscapesProject(rawDir: string, projectDir: string): Pro
   }
   const target = isAbsolute(rawDir) ? rawDir : resolve(projectRoot, rawDir);
   const resolvedDir = await realpathWithMissingParents(target);
-  return resolvedDir !== projectRoot && !resolvedDir.startsWith(projectRoot + sep);
+  return !isPathWithin(projectRoot, resolvedDir);
 }
 
 /** The raw (unresolved) target path a write tool would write to, or null for non-write
@@ -119,8 +120,11 @@ export async function writeEscapesProject(
  *  `..` segments appearing at-or-after the first wildcard segment. The literal prefix is what
  *  the pattern anchors to on disk — it must pass the same read guards as an explicit path; a
  *  `..` in the wildcard tail cannot be resolved statically, so callers refuse it outright. */
-export function splitPatternPrefix(pattern: string): { prefix: string; tailHasDotDot: boolean } {
-  const segments = pattern.split("/");
+export function splitPatternPrefix(
+  pattern: string,
+  platform: NodeJS.Platform = process.platform,
+): { prefix: string; tailHasDotDot: boolean } {
+  const segments = (platform === "win32" ? pattern.replaceAll("\\", "/") : pattern).split("/");
   const literal: string[] = [];
   let i = 0;
   for (; i < segments.length; i++) {
@@ -184,6 +188,6 @@ export async function resolveReadTarget(
   const real = await realpathWithMissingParents(target);
   return {
     target: real,
-    escapes: real !== projectRoot && !real.startsWith(projectRoot + sep),
+    escapes: !isPathWithin(projectRoot, real),
   };
 }

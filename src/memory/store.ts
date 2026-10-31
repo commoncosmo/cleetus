@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { writePrivateFile } from "../security/private-state";
 
 const BULLET = "- ";
 
@@ -30,10 +30,9 @@ export class MemoryStore {
   add(text: string): void {
     const oneLine = text.replace(/\s*\n\s*/g, " ").trim();
     if (!oneLine) return;
-    mkdirSync(dirname(this.filePath), { recursive: true });
     const existing = existsSync(this.filePath) ? readFileSync(this.filePath, "utf8") : "";
     const sep = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
-    writeFileSync(this.filePath, `${existing}${sep}${BULLET}${oneLine}\n`);
+    writePrivateFile(this.filePath, `${existing}${sep}${BULLET}${oneLine}\n`);
   }
 
   removeAt(index: number): boolean {
@@ -52,7 +51,7 @@ export class MemoryStore {
     if (target === -1) return false;
     lines.splice(target, 1);
     const body = lines.join("\n").replace(/^\n+|\n+$/g, "");
-    writeFileSync(this.filePath, body ? `${body}\n` : "");
+    writePrivateFile(this.filePath, body ? `${body}\n` : "");
     return true;
   }
 }

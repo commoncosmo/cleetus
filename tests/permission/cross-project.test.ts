@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { join, resolve, sep } from "node:path";
 import { unexpectedCleetusProjectReference } from "../../src/permission/cross-project";
 
 const roots: string[] = [];
 
 async function fixture(): Promise<{ active: string; sibling: string }> {
   const base = join(
-    process.env.TMPDIR ?? "/tmp",
+    tmpdir(),
     `cleetus-cross-project-${Date.now()}-${Math.random().toString(16).slice(2)}`,
   );
   const active = join(base, "todo6");
@@ -20,7 +21,11 @@ async function fixture(): Promise<{ active: string; sibling: string }> {
 }
 
 afterEach(async () => {
-  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  for (const root of roots.splice(0)) {
+    if (!resolve(root).startsWith(resolve(tmpdir()) + sep))
+      throw new Error("Unsafe fixture cleanup");
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 describe("unexpectedCleetusProjectReference", () => {

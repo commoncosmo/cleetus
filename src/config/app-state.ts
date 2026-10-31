@@ -1,7 +1,7 @@
-import { mkdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { writePrivateFile } from "../security/private-state";
+import { privateDirectory, writePrivateFile } from "../security/private-state";
 
 /** Small persisted app state under the config root (`~/.config/cleetus/state.yaml`) — one-time
  *  acknowledgments and similar flags that are neither config (user-authored) nor per-project.
@@ -42,6 +42,6 @@ export async function writeAppState(configRoot: string, patch: Partial<AppState>
   if (patch.sandboxDegradedAck !== undefined) {
     raw.sandbox_degraded_ack = patch.sandboxDegradedAck;
   }
-  await mkdir(configRoot, { recursive: true, mode: 0o700 });
+  privateDirectory(configRoot, { excludeChildren: ["workspace"] });
   writePrivateFile(stateFile(configRoot), stringifyYaml(raw));
 }

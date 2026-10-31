@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { userPaths } from "../config/user-paths";
 import { shellQuote } from "../git/quote";
 import { CleetusError } from "../lib/errors";
+import { isPathWithin } from "../lib/paths";
 import { realpathWithMissingParents } from "../permission/path-guard";
 import { privateDirectory, writePrivateFile } from "./private-state";
 
@@ -69,13 +70,17 @@ async function readRecord(path: string): Promise<TrustRecord> {
 }
 
 export function projectTrustCommand(opts: ProjectTrustOptions): string {
+  const quote =
+    process.platform === "win32"
+      ? (value: string) => `'${value.replaceAll("'", "''")}'`
+      : shellQuote;
   if (opts.trustGlobalWorkspace) {
     const configDir = resolve(dirname(opts.globalPath));
     const configFlag =
-      configDir === userPaths().configRoot ? "" : ` --config-dir ${shellQuote(configDir)}`;
+      configDir === userPaths().configRoot ? "" : ` --config-dir ${quote(configDir)}`;
     return `cleetus trust --global${configFlag} --yes`;
   }
-  return `cleetus trust --directory ${shellQuote(resolve(opts.projectDir))} --config-dir ${shellQuote(resolve(dirname(opts.globalPath)))} --yes`;
+  return `cleetus trust --directory ${quote(resolve(opts.projectDir))} --config-dir ${quote(resolve(dirname(opts.globalPath)))} --yes`;
 }
 
 export interface ProjectTrustOptions {
@@ -101,8 +106,7 @@ async function recordPath(opts: ProjectTrustOptions): Promise<string> {
   const store = await realpathWithMissingParents(
     resolve(opts.trustStoreDir ?? join(dirname(opts.globalPath), "project-trust")),
   );
-  const rel = relative(root, store);
-  if (rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !rel.startsWith(sep))) {
+  if (isPathWithin(root, store)) {
     throw new Error(
       "Project trust records must be stored outside the project; use an external --config-dir.",
     );

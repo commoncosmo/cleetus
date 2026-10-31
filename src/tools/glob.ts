@@ -1,4 +1,4 @@
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { Glob } from "bun";
 import { splitPatternPrefix } from "../permission/path-guard";
 import { refuseIfSecretPath } from "./read-guard";
@@ -38,12 +38,17 @@ export class GlobTool implements Tool {
           "glob patterns may not contain '..' after a wildcard segment — set 'cwd' to the directory you want and use a relative pattern.",
       };
     }
-    const secretPrefix = await refuseIfSecretPath(a.cwd ? join(a.cwd, prefix) : prefix, ctx);
+    const secretPrefix = await refuseIfSecretPath(
+      resolve(ctx.projectDir, a.cwd ?? "", prefix),
+      ctx,
+    );
     if (secretPrefix) return secretPrefix;
     const limit = a.limit ?? 1000;
     const base = a.cwd ? resolve(ctx.projectDir, a.cwd) : ctx.projectDir;
     try {
-      const glob = new Glob(a.pattern);
+      const glob = new Glob(
+        process.platform === "win32" ? a.pattern.replaceAll("\\", "/") : a.pattern,
+      );
       const out: string[] = [];
       for await (const path of glob.scan({ cwd: base, absolute: true })) {
         out.push(path);

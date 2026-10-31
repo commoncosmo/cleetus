@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { Glob } from "bun";
 import { splitPatternPrefix } from "../permission/path-guard";
 import { refuseIfSecretPath } from "./read-guard";
@@ -16,7 +16,11 @@ interface Args {
 async function rgSearch(executable: string, a: Args, root: string): Promise<string> {
   const args = ["-n", "--no-heading"];
   if (a.ignoreCase) args.push("-i");
-  if (a.filePattern) args.push("--glob", a.filePattern);
+  if (a.filePattern)
+    args.push(
+      "--glob",
+      process.platform === "win32" ? a.filePattern.replaceAll("\\", "/") : a.filePattern,
+    );
   if (a.maxMatches) args.push("--max-count", String(a.maxMatches));
   args.push("-e", a.pattern); // -e binds pattern, immune to leading-dash
   if (a.path) args.push("--", a.path); // -- ends option parsing
@@ -29,7 +33,9 @@ async function rgSearch(executable: string, a: Args, root: string): Promise<stri
 async function jsSearch(a: Args, root: string): Promise<string> {
   const pattern = new RegExp(a.pattern, a.ignoreCase ? "i" : "");
   const filePattern = a.filePattern ?? "**/*";
-  const glob = new Glob(filePattern);
+  const glob = new Glob(
+    process.platform === "win32" ? filePattern.replaceAll("\\", "/") : filePattern,
+  );
   const lines: string[] = [];
   let count = 0;
   const limit = a.maxMatches ?? 500;
@@ -93,7 +99,10 @@ export class GrepTool implements Tool {
             "grep file_pattern may not contain '..' after a wildcard segment — set 'path' to the directory you want and use a relative file_pattern.",
         };
       }
-      const secretPrefix = await refuseIfSecretPath(join(a.path ?? "", prefix), ctx);
+      const secretPrefix = await refuseIfSecretPath(
+        resolve(ctx.projectDir, a.path ?? "", prefix),
+        ctx,
+      );
       if (secretPrefix) return secretPrefix;
     }
     try {
