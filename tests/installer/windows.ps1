@@ -21,6 +21,8 @@ $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('.cleetus-installer-test-' + [
 [IO.Directory]::CreateDirectory($testRoot) | Out-Null
 $savedPath = $env:Path
 $savedPortable = $env:CLEETUS_PORTABLE
+$savedTerminalProfile = $env:CLEETUS_TERMINAL_PROFILE
+$env:CLEETUS_TERMINAL_PROFILE = '0'
 $env:CLEETUS_PORTABLE = '0'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 try {
@@ -34,6 +36,8 @@ try {
     $script:DownloadUrls = New-Object 'System.Collections.Generic.List[string]'
     $script:ResolutionCount = 0
     $script:VerificationCount = 0
+    $script:TerminalRegistrations = New-Object 'System.Collections.Generic.List[string]'
+    function Register-CleetusTerminalProfile { param([string]$Executable); $script:TerminalRegistrations.Add($Executable) }
     function Get-CleetusRelease { param([string]$RequestedVersion); $script:ResolutionCount++; return 'v9.9.9' }
     function Get-CleetusArchitecture { return $script:FixtureArch }
     function Save-CleetusDownload {
@@ -56,6 +60,17 @@ try {
     Assert-CleetusTest ($script:DownloadUrls.Count -eq 2) 'two release files downloaded'
     Assert-CleetusTest ($script:DownloadUrls[0] -match '/v9.9.9/cleetus-windows-arm64.zip$') 'resolved release and architecture used'
     Assert-CleetusTest ($env:Path -eq $savedPath) 'NoPath never changes the current PATH'
+    Assert-CleetusTest ($script:TerminalRegistrations.Count -eq 0) 'Terminal profile is opt in'
+    Install-Cleetus -InstallDir $app -NoPath -SkipDoctor -TerminalProfile
+    Assert-CleetusTest ($script:TerminalRegistrations.Count -eq 1) 'Terminal profile requested once'
+    Assert-CleetusTest ($script:TerminalRegistrations[0] -eq (Join-Path $app 'bin/cleetus.exe')) 'absolute installed executable registers profile'
+    $env:CLEETUS_TERMINAL_PROFILE = '1'
+    Install-Cleetus -InstallDir $app -NoPath -SkipDoctor
+    $env:CLEETUS_TERMINAL_PROFILE = '0'
+    Assert-CleetusTest ($script:TerminalRegistrations.Count -eq 2) 'environment flag opts into Terminal profile'
+    function Register-CleetusTerminalProfile { param([string]$Executable); throw 'fixture optional registration failure' }
+    Install-Cleetus -InstallDir $app -NoPath -SkipDoctor -TerminalProfile
+    Assert-CleetusTest (Test-Path -LiteralPath (Join-Path $app 'bin/cleetus.exe')) 'optional profile failure does not roll back binary installation'
     $portableApp = Join-Path $testRoot 'portable'
     Install-Cleetus -InstallDir $portableApp -Portable -NoPath -SkipDoctor
     Assert-CleetusTest (Test-Path -LiteralPath (Join-Path $portableApp 'cleetus.portable')) 'portable marker'
@@ -103,6 +118,7 @@ try {
 } finally {
     $env:Path = $savedPath
     $env:CLEETUS_PORTABLE = $savedPortable
+    $env:CLEETUS_TERMINAL_PROFILE = $savedTerminalProfile
     $absolute = [IO.Path]::GetFullPath($testRoot)
     if ($absolute.StartsWith([IO.Path]::GetFullPath([IO.Path]::GetTempPath()), [StringComparison]::OrdinalIgnoreCase) -and [IO.Path]::GetFileName($absolute).StartsWith('.cleetus-installer-test-')) { Remove-Item -LiteralPath $absolute -Recurse -Force }
 }

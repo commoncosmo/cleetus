@@ -217,6 +217,17 @@ interface ProgramOptions {
 }
 
 async function main(argv: string[]): Promise<number> {
+  if (argv[2] === "terminal") {
+    const { runTerminal } = await import("../ui/cli/terminal");
+    return runTerminal(argv, process.cwd(), {
+      write: (s) => {
+        process.stdout.write(s);
+      },
+      writeErr: (s) => {
+        process.stderr.write(s);
+      },
+    });
+  }
   if (argv[2] === "migrate-data") {
     const { runMigrateData } = await import("../ui/cli/migrate-data");
     return runMigrateData(argv);

@@ -33,3 +33,12 @@ export interface InputGateFlags {
 export function inputDisabled(f: InputGateFlags): boolean {
   return Object.values(f).some(Boolean);
 }
+
+/** Also include prompts that intentionally leave the text input enabled, such as spec revision. */
+export function terminalActivityState(
+  busy: boolean,
+  flags: InputGateFlags,
+  awaitingText = false,
+): "running" | "waiting" | "clear" {
+  return inputDisabled(flags) || awaitingText ? "waiting" : busy ? "running" : "clear";
+}

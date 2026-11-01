@@ -35,7 +35,12 @@ $installer = irm https://raw.githubusercontent.com/commoncosmo/cleetus/main/inst
 ```
 
 `-NoPath` leaves user and current PATH unchanged. `-SkipDoctor` skips the
-post-install prerequisite report. Re-running the installer upgrades its managed
+post-install prerequisite report. `-TerminalProfile` optionally registers the
+Cleetus Windows Terminal profile; it does not install Windows Terminal itself.
+The equivalent environment flag is `CLEETUS_TERMINAL_PROFILE=1`, and source/local
+installs accept `bun run install-local --terminal-profile`. Registration failures
+are reported separately and do not roll back a successful binary installation.
+Re-running the installer upgrades its managed
 `bin` directory after staging and validation; data outside `bin` is preserved.
 Close Cleetus and its child processes first. Locked executables cause a clear
 failure before replacement, and failed directory replacement restores the old
@@ -339,32 +344,81 @@ regressions on x64 and ARM64 runners; it does not claim MXC enforcement coverage
 
 ## Windows Terminal
 
-The interactive TUI emits trusted OSC 9;4 state to Windows Terminal only when stdout
-is a TTY and `WT_SESSION` exists. It displays indeterminate progress while working,
-a warning state when input/approval is needed, and clears progress when idle or
-unmounted. Redirected output gets no sequences. Disable with
-`$env:CLEETUS_TERMINAL_PROGRESS = '0'`.
-
-Generate an optional profile without changing installed Terminal settings:
+Install or remove the optional profile without changing Terminal's main settings:
 
 ```powershell
-bun scripts/windows-terminal-profile.ts C:/path/to/cleetus.exe
+cleetus terminal install
+cleetus terminal uninstall
 ```
 
-Review `dist/windows-terminal/Cleetus.json`, then optionally place it beneath
-`%LOCALAPPDATA%/Microsoft/Windows Terminal/Fragments/Cleetus/`.
-The profile launches Cleetus directly. Windows Terminal is the terminal host;
-PowerShell is the shell used for agent commands.
+Cleetus manages only its marked fragment at
+`%LOCALAPPDATA%\Microsoft\Windows Terminal\Fragments\Cleetus\Cleetus.json`.
+Registration is repeatable and updates that profile to the selected executable.
+Existing unmarked fragments, files with additional profiles/settings, junctions,
+and hardlinks are left untouched with an error. Older manually generated fragments
+should be reviewed and moved aside before registering the managed profile.
+Other files and Terminal settings are never removed. Restart all Terminal windows
+after registration/removal so the profile list reloads. The optional installer
+flag registers the same profile; registration needs a build supporting these commands.
 
-Open a project using the installed profile with
-`wt -w 0 new-tab -p Cleetus -d C:/path/to/project`.
+The dropdown profile launches Cleetus directly with `--global`, using its configured
+managed global workspace. Its bootstrap directory is `%USERPROFILE%`, so a Terminal
+started from a shortcut cannot accidentally use `C:\Windows\System32` as a project.
+Explicit `terminal open <project>` commands still start project-scoped sessions in
+the requested directory and do not use the dropdown's `--global` argument.
+For source runs, it retains Bun plus the source entry point. You can choose a
+particular compiled installation with
+`cleetus terminal install --executable C:\Apps\Cleetus\bin\cleetus.exe`.
+Moving an installation afterward requires re-registering its profile.
 
-Further integration opportunities include project tabs and split panes via `wt`,
-OSC 133 command marks in a linear transcript, working-directory reporting, and
-interactive sandbox terminals using ConPTY. A normal `wt ... pwsh` pane is not an
-MXC sandbox: interactive agent commands must retain the executor's lifetime and
-policy. Ink's redrawn TUI also needs a deliberate design before emitting command
-marks. These features are not implemented in this change.
+Open projects in the most recently used Terminal window (or a new window if none exists):
+
+```powershell
+cleetus terminal open 'C:\Projects\my app'
+cleetus terminal open 'C:\Projects\my app' --split
+cleetus terminal open --split  # use the current directory
+cleetus terminal open 'C:\Projects\my app' --split --vertical --size 0.65
+cleetus terminal open 'C:\Projects\my app' --split --horizontal --size 0.4
+```
+
+`--vertical` creates side-by-side panes; `--horizontal` creates stacked panes.
+Choose at most one orientation. Without either flag, Terminal chooses automatically.
+`--size` sets the new pane's initial share of the currently focused pane's area,
+from `0.01` to `0.99` inclusive; `0.65` means 65%. Omitting it retains Terminal's
+default split size. Orientation and size require `--split`, and all pane options
+apply only to `terminal open`. Panes remain resizable after opening: focus a pane
+and use **Alt+Shift+Left/Right** for width or **Alt+Shift+Up/Down** for height.
+
+These launch Cleetus with explicit argv, without a PowerShell command string and
+without requiring the optional profile first. Spaces, apostrophes, and Unicode in
+project paths are supported. Semicolons and control characters are refused because
+`wt` interprets semicolons as additional actions, including inside argument values.
+Missing Terminal, missing directories, and launch failures produce Terminal-specific
+errors rather than provider or MXC diagnostics. Bun cannot resolve WindowsApps
+execution aliases, so discovery also uses the OS-shipped PowerShell's read-only
+installed-package metadata to locate stable Terminal or Terminal Preview. Neither
+that lookup nor profile registration changes shell profiles or execution policy.
+
+The interactive TUI reports the session's project directory (OSC 9;9), a sanitized
+project title, and trusted progress state (OSC 9;4). Titles distinguish working,
+waiting for input, and idle sessions. Permission prompts, plan/build/task-list
+decisions, spec revision, pickers, and editor approvals all request attention.
+New tabs using directory inheritance can reuse the session root; transient tool
+working directories never change it. Idle/unmount/normal process exit clears the
+progress state. Terminal profiles with application titles suppressed may ignore
+title changes; the managed profile enables them.
+
+Metadata is emitted only with a TTY and `WT_SESSION`. ACP and redirected output
+receive no integration sequences. Set `CLEETUS_TERMINAL_INTEGRATION=0` to disable
+all metadata, or `CLEETUS_TERMINAL_PROGRESS=0` to disable only progress. Windows
+directory reporting requires a native drive/UNC path. The developer-only fragment
+generator remains available as `bun scripts/windows-terminal-profile.ts <exe>`.
+
+Windows Terminal is the terminal host; PowerShell remains the shell for agent
+commands. Opening a Cleetus pane retains ordinary startup, approvals, and MXC
+enforcement. This does not create an interactive agent shell. OSC 133 transcript
+navigation and interactive MXC/ConPTY terminals are tracked in
+[issue #37](https://github.com/commoncosmo/cleetus/issues/37).
 
 ## Verification and remaining coverage
 

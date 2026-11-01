@@ -5,6 +5,14 @@ on:
     paths:
       - "src/security/**"
       - "src/lib/**"
+      - "src/windows/**"
+      - "src/ui/windows-terminal.ts"
+      - "src/ui/cli/terminal.ts"
+      - "src/ui/tui/input-gate.ts"
+      - "src/setup/windows-environment.ts"
+      - "scripts/install.ts"
+      - "scripts/windows-terminal-profile.ts"
+      - "install.ps1"
       - "src/config/**"
       - "src/editor/**"
       - "src/permission/**"
@@ -19,6 +27,10 @@ on:
       - "src/tools/within-project.ts"
       - "tests/security/**"
       - "tests/lib/**"
+      - "tests/ui/windows-terminal.test.ts"
+      - "tests/ui/cli/terminal.test.ts"
+      - "tests/ui/tui/input-gate.test.ts"
+      - "tests/installer/windows.ps1"
       - "tests/editor/**"
       - "tests/tools/**"
       - "tests/config/**"
@@ -61,3 +73,11 @@ jobs:
         run: bun test ./tests/security/windows-private-state.test.ts ./tests/lib/windows-paths.test.ts ./tests/lib/db.test.ts ./tests/editor/words.test.ts ./tests/editor/launch.test.ts ./tests/security/secret-paths.test.ts ./tests/tools/glob.test.ts ./tests/permission/evaluator.test.ts ./tests/permission/cross-project.test.ts ./tests/tools/within-project.test.ts
       - name: Scoped command approvals and ACP forms
         run: bun test ./tests/permission/command-pattern.test.ts ./tests/acp/command-approvals.test.ts ./tests/acp/command-approvals-wire.test.ts ./tests/ui/tui/permission-grant.test.ts ./tests/ui/tui/permission-prompt.test.ts ./tests/slash/commands.test.ts
+      - name: Terminal integration and installer regressions
+        run: bun test ./tests/ui/cli/terminal.test.ts ./tests/ui/windows-terminal.test.ts ./tests/ui/tui/input-gate.test.ts ./tests/setup/install.test.ts
+      - name: PowerShell 5.1 installer
+        shell: powershell
+        run: ./tests/installer/windows.ps1
+      - name: PowerShell 7 installer
+        shell: pwsh
+        run: ./tests/installer/windows.ps1

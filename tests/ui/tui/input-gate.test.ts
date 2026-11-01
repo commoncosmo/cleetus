@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { type InputGateFlags, inputDisabled } from "../../../src/ui/tui/input-gate";
+import {
+  type InputGateFlags,
+  inputDisabled,
+  terminalActivityState,
+} from "../../../src/ui/tui/input-gate";
 
 const allClear: InputGateFlags = {
   permissionPromptOpen: false,
@@ -35,4 +39,15 @@ test("each modal condition alone disables input", () => {
   for (const key of Object.keys(allClear) as (keyof InputGateFlags)[]) {
     expect(inputDisabled({ ...allClear, [key]: true })).toBe(true);
   }
+});
+
+test("Terminal attention covers every modal and prompts that accept ordinary text", () => {
+  expect(terminalActivityState(false, allClear)).toBe("clear");
+  expect(terminalActivityState(true, allClear)).toBe("running");
+  for (const key of Object.keys(allClear) as (keyof InputGateFlags)[]) {
+    expect(terminalActivityState(true, { ...allClear, [key]: true })).toBe("waiting");
+    expect(terminalActivityState(false, { ...allClear, [key]: true })).toBe("waiting");
+  }
+  expect(terminalActivityState(false, allClear, true)).toBe("waiting");
+  expect(inputDisabled(allClear)).toBe(false);
 });
