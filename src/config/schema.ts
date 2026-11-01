@@ -6,10 +6,15 @@ export const ProviderConfigSchema = z
     base_url: z.string().url(),
     api_key: z.string().optional(),
     context_length: z.number().int().positive().optional(),
+    metadata_url: z.string().url().optional(),
   })
   .refine((p) => p.context_length === undefined || p.type === "strata", {
     message: "context_length is currently supported only for Strata providers",
     path: ["context_length"],
+  })
+  .refine((p) => p.metadata_url === undefined || p.type === "strata", {
+    message: "metadata_url is currently supported only for Strata providers",
+    path: ["metadata_url"],
   });
 
 export const McpServerConfigSchema = z.object({

@@ -1,11 +1,11 @@
 import type { RawWebTools } from "./schema";
 import type { WebSearchConfig, WebToolsConfig } from "./types";
 
-export const DEFAULT_WEB_MAX_BYTES = 50000;
+export const DEFAULT_WEB_MAX_BYTES = 250000;
 
 /**
  * Merge global + project web-tools config (project-over-global, per the sandbox pattern).
- * Defaults: enabled on (still permission-gated per call), localhost blocked, 50KB cap,
+ * Defaults: enabled on (still permission-gated per call), localhost blocked, 250KB source cap,
  * DuckDuckGo search. brave_api_key is omitted from the result when unset so the factory's
  * env fallback can apply.
  */

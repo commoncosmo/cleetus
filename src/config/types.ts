@@ -22,6 +22,8 @@ export interface ProviderConfig {
   apiKey?: string;
   /** Strata's declared served window, used only when native metadata is unavailable. */
   contextLength?: number;
+  /** Optional Strata desktop root when the inference gateway hides metadata routes. */
+  metadataUrl?: string;
 }
 
 export interface McpServerConfig {

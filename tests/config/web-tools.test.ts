@@ -6,7 +6,7 @@ describe("resolveWebTools", () => {
     expect(resolveWebTools(undefined, undefined)).toEqual({
       enabled: true,
       allowLocalhost: false,
-      maxBytes: 50000,
+      maxBytes: 250000,
       search: { provider: "duckduckgo" },
     });
   });
@@ -24,7 +24,7 @@ describe("resolveWebTools", () => {
     const r = resolveWebTools(undefined, { search: { provider: "brave" } });
     expect(r.search).toEqual({ provider: "brave" });
   });
-  it("DEFAULT_WEB_MAX_BYTES is 50000", () => {
-    expect(DEFAULT_WEB_MAX_BYTES).toBe(50000);
+  it("caches manuals larger than 50KB without expanding documentation excerpts", () => {
+    expect(DEFAULT_WEB_MAX_BYTES).toBe(250000);
   });
 });

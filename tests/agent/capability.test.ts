@@ -96,6 +96,7 @@ describe("filterToolsForCapability", () => {
       "scaffold",
       "smoke_run",
       "todo_write",
+      "web_fetch",
       "write_file",
     ]);
   });
@@ -163,7 +164,8 @@ describe("hiddenToolRedirect", () => {
     expect(hiddenToolRedirect("render_check", "small")).toBeNull();
   });
   it("plain unavailability for the rest", () => {
-    for (const n of ["web_fetch", "web_search", "code_search", "remember", "task"]) {
+    expect(hiddenToolRedirect("web_fetch", "small")).toBeNull();
+    for (const n of ["web_search", "code_search", "remember", "task"]) {
       expect(hiddenToolRedirect(n, "small")).toBe(`${n} is not available in this session.`);
     }
   });

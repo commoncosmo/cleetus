@@ -13,6 +13,8 @@ export type CapabilityMode = "small" | "standard" | "auto";
  *  redirected on call (see hiddenToolRedirect). */
 export const SMALL_TOOL_ROSTER: ReadonlySet<string> = new Set([
   "read_file",
+  // Coding tasks need authoritative framework docs too, even with an unknown window.
+  "web_fetch",
   "write_file",
   "edit_file",
   "bash",

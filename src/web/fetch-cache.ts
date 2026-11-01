@@ -1,6 +1,8 @@
 export interface CachedFetch {
   body: string;
   finalUrl: string;
+  /** Preserve response kind so a document starting with a Markdown link isn't mistaken for JSON. */
+  contentType?: string;
   /** False when web_fetch capped the response before caching it. Exact-save tools must refuse it. */
   complete?: boolean;
 }

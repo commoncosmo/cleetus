@@ -170,8 +170,10 @@ and its third-party notices remain reproducible.
    Configure Strata explicitly with `type: strata` and the root URL without `/v1`.
    Use its served model ID, such as `iq3_s`. Cleetus recognizes Qwen from Strata's model
    label, so `model_family.override: qwen` is unnecessary when that label identifies Qwen.
-   If the endpoint hides `/props`, set the provider's `context_length` to Strata's actual
-   configured window. See [Strata configuration and verification](docs/providers.md#strata).
+   Cleetus discovers context from `/props`, the model listing, or a matched native desktop
+   instance. If the gateway hides that metadata, use `metadata_url` for a reachable desktop
+   root or set `context_length` to Strata's actual loaded window. See
+   [Strata configuration and verification](docs/providers.md#strata).
 
 3. Run:
    ```bash
@@ -419,7 +421,7 @@ sandbox:
 web_tools:
   enabled: true               # each call is still permission-gated
   allow_localhost: false      # opt-in loopback; metadata/link-local stay blocked
-  max_bytes: 200000           # fetch output byte cap
+  max_bytes: 250000           # fetched source byte cap; documentation excerpts are smaller
   search:
     provider: duckduckgo      # duckduckgo | brave
     brave_api_key: ""         # else the BRAVE_SEARCH_API_KEY env var is used
@@ -561,7 +563,7 @@ ui:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `providers` | — (required) | Map of named inference servers. Each has `type` (`lmstudio`/`ollama`/`llama.cpp`/`omlx`/`vllm`/`strata`), `base_url`, optional `api_key`. Strata also accepts a `context_length` fallback. Base URLs omit `/v1`. |
+| `providers` | — (required) | Map of named inference servers. Each has `type` (`lmstudio`/`ollama`/`llama.cpp`/`omlx`/`vllm`/`strata`), `base_url`, optional `api_key`. Strata also accepts a `context_length` fallback and an optional desktop `metadata_url`. Base URLs omit `/v1`. |
 | `default_provider` | first provider | Which provider to prefer when a model name exists on several. |
 | `default_model` | unset | Start straight into a session; the picker only shows when no model resolves. |
 | `embeddings` | unset (disabled) | `{ provider, model }` for the vector store powering `/index` + `code_search`. |
@@ -606,7 +608,7 @@ In `smart` mode with tiers configured, the small tier is also offered a `request
 |---|---|---|
 | `enabled` | `true` | Master switch for `web_fetch`/`web_search` (still permission-gated). |
 | `allow_localhost` | `false` | Allow loopback targets (e.g. local dev servers). |
-| `max_bytes` | `200000` | Byte cap on fetched output. |
+| `max_bytes` | `250000` | Byte cap on the fetched source retained in the session cache. Documentation excerpts have a separate 8000-character cap. |
 | `search.provider` | `duckduckgo` | `duckduckgo` (no key) or `brave` (needs a key). |
 | `search.brave_api_key` | unset | Brave key; falls back to `BRAVE_SEARCH_API_KEY`. |
 
@@ -682,6 +684,12 @@ agents, so their effects also depend on the MCP service and existing permissions
 | `command` | auto-detected | Override the test command (string or list of args). |
 | `timeout_ms` | `120000` | Test-run timeout. |
 | `max_output_lines` | `120` | Cap on captured failure output. |
+
+Detection respects the project's package manager and `test` script. A Bun project can use
+`bun test` without a script; having Bun on PATH does not select it for an npm, pnpm, or Yarn
+project. To opt into a runner explicitly, set `test.command` (for example, `["bun", "test"]`).
+For a scaffold without a test suite, use `run_tests` with `check: build` rather than adding
+test dependencies just to obtain a passing check. A focused test pass does not verify a build.
 
 **`smoke_run`** — the `smoke_run` probe
 
@@ -791,6 +799,16 @@ results remain in session history. A large MCP response alone does not trigger d
 compaction if its bounded content fits. `/context` shows measurements from the last assembled
 request, including the routed provider/model, so it can explain the difference between a large
 server window and a smaller effective budget. It is available in both the terminal and ACP.
+
+Compaction retains bounded recovery evidence for the user request, documentation URLs, edited
+paths, and latest verification outcomes, even if the model summary fails. After two degraded
+summaries from the same provider/model, the next three compactions use the fast extractive
+fallback before retrying the summarizer. `/compact` retries immediately. Cached documentation
+remains available after compaction; reread a section instead of downloading the manual again.
+Cooldown notices identify the deliberate fast fallback separately from a failed summary.
+During implementation, a bounded checkpoint preserves confirmed writes and the latest check
+outcome. Mixed shell/document inspection and repeated reads of already-covered documentation
+trigger a course correction; a successful empty search is counted as unproductive work.
 
 For a model with a confirmed larger served window, raise `context.max_budget_tokens`, or set
 `model_profiles.<provider-name>.<exact-model-id>.max_budget_tokens` for just that model. The default
@@ -1082,9 +1100,16 @@ sandbox:
 cleetus ships two network tools so the model can reach outside the repository:
 
 - **`web_fetch`** — fetch a URL and return it as markdown (HTML is converted with
-  `node-html-markdown`; JSON/text pass through; binary types are summarized, not dumped).
+  `node-html-markdown`; JSON passes through; binary types are summarized, not dumped).
   Fetched content is wrapped in an `<untrusted-web-content>` envelope and should be
-  treated as data, not instructions.
+  treated as data, not instructions. It remains available in the small tool set for coding
+  tasks. Documentation reads return up to 100 lines by default, capped at 8000 excerpt
+  characters; use `query` for a literal, case-insensitive section search or `start_line`
+  (1-based) to continue, with optional `max_lines` (1–200). Successful fetches are cached
+  in memory for the session, so reading another section reuses the original response.
+  The excerpt cap does not replace `web_tools.max_bytes`: a source truncated by that fetch
+  limit cannot be recovered by paging. Unpaged JSON retains its raw representation for
+  exact artifact saving.
 - **`web_search`** — query the web and return the top results. Uses **DuckDuckGo**
   (HTML scraping, no key) by default, or the **Brave Search API** when a key is
   configured (recommended — DuckDuckGo scraping is inherently brittle).
@@ -1099,7 +1124,7 @@ per-call permission system. They are governed by their own config, independent o
 web_tools:
   enabled: true            # default on; each call is still permission-gated
   allow_localhost: false   # opt-in loopback (e.g. local dev servers); metadata/link-local stay blocked
-  max_bytes: 200000        # fetch output byte cap
+  max_bytes: 250000        # fetched source byte cap; documentation excerpts are smaller
   search:
     provider: duckduckgo   # or "brave"
     brave_api_key: ""       # optional; the BRAVE_SEARCH_API_KEY env var is used if unset

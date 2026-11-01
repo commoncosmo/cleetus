@@ -62,6 +62,15 @@ export interface ToolAuthorization {
 }
 
 export interface ToolResult {
+  /** Source/range evidence for coding-time documentation progress; bodies remain untrusted. */
+  documentation?: {
+    url: string;
+    matched: boolean;
+    cached: boolean;
+    startLine?: number;
+    endLine?: number;
+    totalLines: number;
+  };
   verification?: {
     command: string;
     exitCode: number | null;

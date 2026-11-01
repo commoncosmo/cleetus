@@ -77,7 +77,8 @@ providers:
   strata:
     type: strata
     base_url: http://jethro:47832
-    # context_length: 32768  # Example only: match the server's actual configured window.
+    # context_length: 131072 # Only if Strata's loaded context is configured to 128K.
+    # metadata_url: http://strata-desktop:8791 # Optional reachable desktop root, not /v1.
 default_provider: strata
 default_model: iq3_s
 ```
@@ -92,13 +93,35 @@ When switching an existing workaround from `type: vllm` to `type: strata`, remov
 for an unlabelled or incorrectly labelled model.
 
 When exposed, `/props?model=<id>` supplies the effective served window and chat-template
-capabilities. Some desktop/router installations expose only `/v1` routes. In that case,
-set the provider's optional `context_length` to the window actually configured in Strata.
+capabilities. Cleetus also reads the desktop runtime's `/v1/models` `meta.context`, and
+matches native `/api/native` instances by model/alias and instance ID. Only a ready, uniquely
+matched instance supplies context; its configured context and engine `max_context` are
+bounded by the smaller reported limit. Loaded context is refreshed so reloading an alias
+with a smaller window updates Cleetus's budget.
+
+Some desktop/router installations expose only `/v1` routes, and Strata's native gateway may
+omit context from its model listing. Set `metadata_url` to a separately reachable Strata
+desktop root that exposes `/api/native`, or set `context_length` to the window actually
+configured in Strata. Cleetus does not scan other ports to find the desktop. An inference
+API key is never forwarded to a different metadata origin.
+
 This is a declared fallback, not a discovered limit: native loaded metadata takes precedence,
 including when it reports a smaller window. For endpoints serving several models, use a
 fallback that fits every model or configure separate model-specific endpoints. Without
 either source, Cleetus keeps its conservative context behavior and doctor explains the gap.
 Do not substitute the model's advertised maximum for the server's loaded window.
+For example, a loaded setting of 128K means `context_length: 131072`. To let that particular
+model use more than Cleetus's default 32K budget ceiling, also configure:
+
+```yaml
+model_profiles:
+  strata:
+    iq3_s:
+      max_budget_tokens: 131072
+```
+
+The context safety margin, response reserve, tool schemas, and other prompt overhead still
+reduce the space available for history. This ceiling does not enlarge the server's window.
 Run `cleetus --list-models` to verify the model ID and `cleetus doctor` to check the endpoint
 and context configuration before starting an interactive or ACP session.
 
@@ -116,7 +139,7 @@ bun scripts/smoke-strata.ts http://jethro:47832
 ```
 
 Optional environment variables: `STRATA_MODEL`, `STRATA_API_KEY`, and
-`STRATA_CONTEXT_LENGTH`. The test uses a synthetic tool and isolated audit data under
+`STRATA_CONTEXT_LENGTH`, and `STRATA_METADATA_URL`. The test uses a synthetic tool and isolated audit data under
 `dist/strata-smoke`; it does not modify your configuration or run shell/filesystem tools.
 It fault-injects one malformed response to exercise the real agent's structured recovery
 against Strata, and checks native tool round trips, context handling, cancellation, and

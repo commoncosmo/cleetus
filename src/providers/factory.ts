@@ -11,10 +11,15 @@ export function buildProvider(
   type: string,
   baseUrl: string,
   apiKey?: string,
-  options: { contextLength?: number } = {},
+  options: { contextLength?: number; metadataUrl?: string } = {},
 ): Provider {
   if (type === "strata")
-    return new StrataProvider({ baseUrl, apiKey, contextLength: options.contextLength });
+    return new StrataProvider({
+      baseUrl,
+      apiKey,
+      contextLength: options.contextLength,
+      metadataUrl: options.metadataUrl,
+    });
   if (type === "lmstudio") return new LMStudioProvider({ baseUrl, apiKey });
   if (type === "ollama") return new OllamaProvider({ baseUrl, apiKey });
   if (type === "llama.cpp") return new LlamaCppProvider({ baseUrl, apiKey });

@@ -16,7 +16,8 @@ const baseUrl = (process.argv[2] ?? process.env.STRATA_BASE_URL ?? "http://local
   .replace(/\/v1\/?$/, "")
   .replace(/\/$/, "");
 const apiKey = process.env.STRATA_API_KEY;
-const provider = new StrataProvider({ baseUrl, apiKey });
+const metadataUrl = process.env.STRATA_METADATA_URL;
+const provider = new StrataProvider({ baseUrl, apiKey, metadataUrl });
 const models = await provider.listModels();
 const model = process.env.STRATA_MODEL ?? models[0]?.id;
 assert(model, "No Strata model available");
@@ -42,7 +43,7 @@ console.log(
 );
 const fallbackWindow = Number(process.env.STRATA_CONTEXT_LENGTH ?? 4096);
 assert(Number.isInteger(fallbackWindow) && fallbackWindow > 0);
-const fallbackProvider = new StrataProvider({ baseUrl, apiKey, contextLength: fallbackWindow });
+const fallbackProvider = new StrataProvider({ baseUrl, apiKey, metadataUrl, contextLength: fallbackWindow });
 const registry = new ProviderRegistry();
 registry.register("strata", fallbackProvider);
 const cache = new ModelContextCache(registry);

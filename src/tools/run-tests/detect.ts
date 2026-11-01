@@ -120,10 +120,9 @@ export async function detectTestCommand(
       const pm = await packageManager(projectDir);
       return { command: { runnerId: "node", argv: [pm, "test"] }, warnings };
     }
-    if (which("bun")) {
-      return { command: { runnerId: "bun", argv: ["bun", "test"] }, warnings };
-    }
-    warnings.push("node tests unavailable: no test script and bun not found");
+    warnings.push(
+      "node tests unavailable: no project test script; use the existing build check for a scaffold, or explicitly configure the intended test command (Bun on PATH does not select this project's runner)",
+    );
   }
 
   // 2. Python

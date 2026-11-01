@@ -86,6 +86,24 @@ function makeRuntime(
 }
 
 describe("capability surface (runtime)", () => {
+  it("keeps cached documentation fetching available for a Ripple coding task with unknown context", async () => {
+    const p = new RecordingProvider();
+    const rt = makeRuntime(p, ["web_fetch", "web_search", "code_search", "write_file"], {
+      capability: () => "auto",
+    });
+    await rt.runTurn(
+      "ripple",
+      "Create a vite/typescript site with ripple for the UI. Instructions: https://www.ripple-ts.com/llms.txt",
+    );
+    expect(p.requests[0]!.tools!.map((tool) => tool.name).sort()).toEqual([
+      "web_fetch",
+      "write_file",
+    ]);
+    expect(
+      p.requests[0]!.messages.some((message) => message.content.includes("reuse the same URL")),
+    ).toBe(true);
+  });
+
   it("places a hidden active-voice reminder near the live user turn without leaking it to transcript", async () => {
     const p = new RecordingProvider();
     p.script.push([
@@ -211,7 +229,7 @@ describe("capability surface (runtime)", () => {
       .map((e) => (e.payload as { text: string }).text)
       .filter((t) => t.startsWith("capability:"));
     expect(notices).toEqual([
-      "capability: small surface for small-m (12 tools, distilled prompt) — set capability: standard to override",
+      "capability: small surface for small-m (13 tools, distilled prompt) — set capability: standard to override",
     ]);
   });
 
@@ -321,7 +339,7 @@ describe("capability surface (runtime)", () => {
       .map((e) => (e.payload as { text: string }).text)
       .filter((t) => t.startsWith("capability:"));
     expect(notices).toEqual([
-      "capability: small surface for small-m (12 tools, distilled prompt) — set capability: standard to override",
+      "capability: small surface for small-m (13 tools, distilled prompt) — set capability: standard to override",
     ]);
   });
 

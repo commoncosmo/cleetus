@@ -93,6 +93,8 @@ export type StreamEvent =
     };
 
 export interface Provider {
+  /** Some routers reload a served alias in place; periodically reprobe its loaded window. */
+  readonly refreshLoadedContext?: boolean;
   listModels(): Promise<ModelInfo[]>;
   chat(opts: ChatOptions): AsyncIterable<StreamEvent>;
   embed(text: string, model?: string, options?: { signal?: AbortSignal }): Promise<number[]>;
