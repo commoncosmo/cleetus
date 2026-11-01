@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { signCommand } from "./build";
 import { version } from "../package.json";
+import { installTerminalProfile } from "../src/windows/terminal";
 
 /** True if `dir` appears as a `:`-separated entry in the given PATH string. */
 export function isOnPath(
@@ -78,6 +79,15 @@ if (import.meta.main) {
   }
   if (resignInPlace(dest)) console.log("re-signed (ad-hoc) for macOS");
   console.log(`installed ${dest}`);
+  if (process.argv.includes("--terminal-profile") || process.env.CLEETUS_TERMINAL_PROFILE === "1") {
+    if (process.platform !== "win32") console.warn("Windows Terminal profile registration requires Windows.");
+    else {
+      try {
+        if (!process.env.LOCALAPPDATA) throw new Error("LOCALAPPDATA is required.");
+        console.log(`Installed Terminal profile: ${installTerminalProfile({ executable: dest, args: [] }, process.env.LOCALAPPDATA)}`);
+      } catch (error) { console.warn(`Cleetus is installed; optional Terminal profile registration failed: ${error instanceof Error ? error.message : String(error)}`); }
+    }
+  }
   if (!isOnPath(targetDir, process.env.PATH)) {
     console.log(`\n${targetDir} is not on your PATH. Add this to your shell profile:`);
     console.log(

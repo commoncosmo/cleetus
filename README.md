@@ -1052,7 +1052,16 @@ invocations use direct argv where supported. Git Bash/MSYS cannot initialize ins
 Startup probes MXC support and checks the shell; failure stops execution rather than
 silently dropping containment. Explicit `sandbox.backend: none` remains an opt-in.
 Windows Terminal shows taskbar/tab progress while working and a warning state while
-waiting for input. Set `CLEETUS_TERMINAL_PROGRESS=0` to disable it.
+waiting for input, with project-aware tab titles and directory reporting.
+`cleetus terminal install` registers its optional profile; `cleetus terminal open <project>`
+opens a project tab, and `--split` opens a pane. Use `cleetus terminal uninstall` to
+remove the app-owned profile. Add `--vertical` or `--horizontal` to choose a split
+orientation and `--size 0.65` to give the new pane 65% of the focused pane's area;
+these options require `--split`. Use Alt+Shift+arrow keys to resize afterward.
+The Windows installer supports `-TerminalProfile`, and
+local installs support `bun run install-local --terminal-profile`.
+Set `CLEETUS_TERMINAL_INTEGRATION=0` to disable metadata or
+`CLEETUS_TERMINAL_PROGRESS=0` to disable progress alone.
 See [Windows support](docs/windows.md) for build commands, testing, Terminal integration,
 and current limitations. WSL remains available as a separate Linux environment.
 Run `cleetus doctor --windows` to check prerequisites and native enforcement, or add

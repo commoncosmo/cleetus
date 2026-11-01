@@ -86,7 +86,7 @@ import type { WorkflowCommandController } from "../../workflows/interactive-cont
 import type { JsonObject, JsonSchema } from "../../workflows/types";
 import type { RequestWorkflowAuthorization, WorkflowAuthorizationRequest } from "../cli/workflow";
 import { useTheme } from "../theme";
-import { terminalProgress } from "../windows-terminal";
+import { terminalActivity, terminalDirectory } from "../windows-terminal";
 import { BootstrapLocationPrompt } from "./bootstrap-location-prompt";
 import { BusyIndicator } from "./busy-indicator";
 import { grabClipboardImage } from "./clipboard-image";
@@ -97,7 +97,7 @@ import { FRAME_MS, subscribeFrameClock } from "./frame-clock";
 import { History } from "./history";
 import { type HistoryModel, advanceHistory, seedHistory, settlePending } from "./history-model";
 import { Input, type InputSeed } from "./input";
-import { type InputGateFlags, inputDisabled } from "./input-gate";
+import { type InputGateFlags, inputDisabled, terminalActivityState } from "./input-gate";
 import { enqueue, queuedLine, resolveBoundary } from "./input-queue";
 import { isToggleReasoningKey, isToggleTestDetailsKey } from "./keys";
 import { ModePickerModal } from "./mode-picker-modal";
@@ -1921,7 +1921,7 @@ export function App(props: AppProps) {
     permissionPromptOpen: Boolean(prompt),
     workflowPermissionPromptOpen: Boolean(workflowPrompt),
     workflowInputPromptOpen: Boolean(workflowInput),
-    editorHandoffOpen: Boolean(editorRequest),
+    editorHandoffOpen: Boolean(editorRequest || editorPermissionPrompt),
     planApprovalPending,
     planOrchestratePending: Boolean(planOrchestratePending),
     taskListPending: Boolean(taskListPending),
@@ -2142,11 +2142,20 @@ export function App(props: AppProps) {
         Boolean(props.orchestration.orchestratorModel || props.orchestration.workerModel),
     },
   });
-  const promptShowing = Boolean(prompt || workflowPrompt || workflowInput || editorRequest);
+  const activity = terminalActivityState(busy, gateFlags, Boolean(specRevisionPending));
+  const promptShowing = activity === "waiting";
   useEffect(() => {
-    terminalProgress(promptShowing ? "waiting" : busy ? "running" : "clear");
-    return () => terminalProgress("clear");
-  }, [busy, promptShowing]);
+    terminalDirectory(props.projectDir);
+    const clear = () => terminalActivity("clear", props.projectDir);
+    process.once("exit", clear);
+    return () => {
+      process.off("exit", clear);
+      clear();
+    };
+  }, [props.projectDir]);
+  useEffect(() => {
+    terminalActivity(activity, props.projectDir);
+  }, [activity, props.projectDir]);
   const reserve = liveWindowReserve({
     // The "thinking…" header renders whenever reasoning is buffered, prose streaming or not.
     reasoningHeader:
@@ -2181,9 +2190,7 @@ export function App(props: AppProps) {
         testDetailsExpanded={testDetailsExpanded}
         proseLines={liveBudget.proseLines}
       />
-      {busy && !editorRequest && !prompt && !workflowPrompt && !workflowInput && (
-        <BusyIndicator events={events} />
-      )}
+      {busy && !promptShowing && <BusyIndicator events={events} />}
       {prompt && (
         <PermissionPrompt
           tool={prompt.tool}

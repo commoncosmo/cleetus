@@ -6,6 +6,7 @@ import type { SandboxConfig } from "../config/types";
 import { powershellArgs } from "../sandbox/shell";
 import { spawnCollect } from "../sandbox/spawn";
 import { WindowsSandbox, windowsExecutorPath } from "../sandbox/windows";
+import { findWindowsTerminal } from "../windows/terminal";
 
 export interface EnvironmentCheck {
   id: string;
@@ -73,7 +74,14 @@ function defaultDeps(): WindowsEnvironmentDeps {
     arch: process.arch,
     osRelease: release(),
     executor: windowsExecutorPath(),
-    which: Bun.which,
+    which: (name) => {
+      if (name !== "wt.exe") return Bun.which(name);
+      try {
+        return findWindowsTerminal();
+      } catch {
+        return null;
+      }
+    },
     exists: existsSync,
     architecture: peArchitecture,
     health: async (cwd, executor, powershell) => {

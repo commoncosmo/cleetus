@@ -6,7 +6,8 @@ param(
     [string]$InstallDir = $env:CLEETUS_INSTALL_DIR,
     [switch]$Portable,
     [switch]$NoPath,
-    [switch]$SkipDoctor
+    [switch]$SkipDoctor,
+    [switch]$TerminalProfile
 )
 
 function Get-CleetusArchitecture {
@@ -113,6 +114,12 @@ function Invoke-CleetusInstalledCheck {
     if (-not $SkipDoctor) { & $Executable doctor --windows --quick; if ($LASTEXITCODE -ne 0) { Write-Warning 'Installation completed; doctor found missing prerequisites. Use unpackaged PowerShell 7.4+ MSI/ZIP and rerun cleetus doctor.' } }
 }
 
+function Register-CleetusTerminalProfile {
+    param([string]$Executable)
+    & $Executable terminal install
+    if ($LASTEXITCODE -ne 0) { throw 'Terminal profile registration failed. Retry with cleetus terminal install after installing a release that supports it.' }
+}
+
 function Assert-CleetusCandidateVersion {
     param([string]$Executable, [string]$Tag)
     try {
@@ -141,7 +148,7 @@ function Test-CleetusPortableSupport {
 
 function Install-Cleetus {
     [CmdletBinding()]
-    param([string]$Version, [string]$InstallDir, [switch]$Portable, [switch]$NoPath, [switch]$SkipDoctor)
+    param([string]$Version, [string]$InstallDir, [switch]$Portable, [switch]$NoPath, [switch]$SkipDoctor, [switch]$TerminalProfile)
     $ErrorActionPreference = 'Stop'
     if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw 'This installer is for Windows.' }
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
@@ -210,6 +217,10 @@ function Install-Cleetus {
         try {
             Invoke-CleetusInstalledCheck (Join-Path $bin 'cleetus.exe') $tag -SkipDoctor:$SkipDoctor
         } catch { Write-Warning "Files installed, but execution verification failed. Check application-control policy and prerequisites. $($_.Exception.Message)" }
+        if ($TerminalProfile -or $env:CLEETUS_TERMINAL_PROFILE -eq '1') {
+            try { Register-CleetusTerminalProfile (Join-Path $bin 'cleetus.exe') }
+            catch { Write-Warning "Cleetus is installed, but its optional Terminal profile was not registered. $($_.Exception.Message)" }
+        }
         if ($NoPath) { Write-Host "PATH was unchanged. Run: $bin\cleetus.exe" }
         else {
             $resolved = Get-Command cleetus -ErrorAction SilentlyContinue
@@ -226,6 +237,6 @@ function Install-Cleetus {
 }
 
 if ($env:CLEETUS_INSTALLER_TEST -ne '1') {
-    try { Install-Cleetus -Version $Version -InstallDir $InstallDir -Portable:$Portable -NoPath:$NoPath -SkipDoctor:$SkipDoctor }
+    try { Install-Cleetus -Version $Version -InstallDir $InstallDir -Portable:$Portable -NoPath:$NoPath -SkipDoctor:$SkipDoctor -TerminalProfile:$TerminalProfile }
     catch { throw "Cleetus installation failed: $($_.Exception.Message)" }
 }
