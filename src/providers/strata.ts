@@ -7,6 +7,7 @@ import {
   parseLlamaCppContext,
 } from "./native-context";
 import { chatOpenAI, embedOpenAI } from "./openai-compat";
+import { type StrataModelRow, parseStrataNativeContext } from "./strata-context";
 import {
   type ChatOptions,
   type ModelInfo,
@@ -20,12 +21,17 @@ export interface StrataProviderOptions {
   baseUrl: string;
   apiKey?: string;
   contextLength?: number;
+  metadataUrl?: string;
 }
 
 /** Strata's OpenAI API, including desktop-router aliases and optional native /props. */
 export class StrataProvider implements Provider {
+  readonly refreshLoadedContext = true;
   private readonly labels = new Map<string, string>();
   private metadata?: Promise<void>;
+  private readonly rows = new Map<string, StrataModelRow>();
+  private rowsAt = 0;
+  private nativeState?: { time: number; value: Promise<unknown | undefined> };
   private readonly props = new Map<string, { time: number; value: Promise<unknown | undefined> }>();
   constructor(private readonly opts: StrataProviderOptions) {}
 
@@ -46,7 +52,7 @@ export class StrataProvider implements Provider {
         `Strata models request failed (${response.status})`,
       );
     const json = (await response.json()) as {
-      data?: { id?: unknown; meta?: { label?: unknown } }[];
+      data?: StrataModelRow[];
     };
     if (!Array.isArray(json.data))
       throw new CleetusError(
@@ -54,10 +60,16 @@ export class StrataProvider implements Provider {
         "Strata model list is missing data array",
       );
     this.labels.clear();
+    this.rows.clear();
+    this.rowsAt = Date.now();
     return json.data.flatMap((row) => {
       if (!row || typeof row.id !== "string") return [];
       if (typeof row.meta?.label === "string") this.labels.set(row.id, row.meta.label);
-      return [{ id: row.id }];
+      this.rows.set(row.id, row);
+      // Strata's llama.cpp desktop route reports the loaded runtime window here. The
+      // native route currently omits it; that route needs /api/native or /props instead.
+      const contextLength = usableContextLength(row.meta?.context);
+      return [{ id: row.id, ...(contextLength === undefined ? {} : { contextLength }) }];
     });
   }
 
@@ -132,7 +144,25 @@ export class StrataProvider implements Provider {
   }
 
   async probeModelContextInfo(model: string): Promise<WindowInfo | undefined> {
-    const window = parseLlamaCppContext(await this.propsFor(model));
+    // Probe independent metadata sources together so a hidden/unreachable route cannot
+    // multiply the startup deadline before reaching the configured fallback.
+    const [props, , native] = await Promise.all([
+      this.propsFor(model),
+      (async () => {
+        if (Date.now() - this.rowsAt < 5000) return;
+        try {
+          await this.listModels();
+        } catch {
+          /* metadata is advisory */
+        }
+      })(),
+      this.nativeStateFor(),
+    ]);
+    const propsWindow = parseLlamaCppContext(props);
+    if (propsWindow !== undefined) return { window: propsWindow, source: "loaded" };
+    const row = this.rows.get(model);
+    const window =
+      parseStrataNativeContext(model, row, native) ?? usableContextLength(row?.meta?.context);
     if (window !== undefined) return { window, source: "loaded" };
     const configured = usableContextLength(this.opts.contextLength);
     return configured === undefined ? undefined : { window: configured, source: "configured" };
@@ -141,12 +171,28 @@ export class StrataProvider implements Provider {
   async readinessWarnings(model: string): Promise<string[]> {
     const props = await this.propsFor(model);
     const warnings = llamaCppReadinessWarnings(props);
-    if (parseLlamaCppContext(props) === undefined)
+    if ((await this.probeModelContextInfo(model))?.source !== "loaded")
       warnings.push(
         this.opts.contextLength
           ? `Strata context metadata unavailable; using configured context_length: ${this.opts.contextLength}. Keep it within the server's actual served window.`
-          : "Strata context window unknown: expose /props or set this provider's context_length to its actual served window. Cleetus retains conservative context budgeting.",
+          : "Strata context window unknown: this gateway does not expose a matched served window. Point metadata_url at the Strata desktop root exposing /api/native, expose /props, or set context_length to the actual loaded window shown in Strata. Model labels and architecture maxima are not served-window evidence; Cleetus retains conservative context budgeting.",
       );
     return warnings;
+  }
+
+  private nativeStateFor(): Promise<unknown | undefined> {
+    if (this.nativeState && Date.now() - this.nativeState.time < 5000)
+      return this.nativeState.value;
+    const baseUrl = (this.opts.metadataUrl ?? this.opts.baseUrl).replace(/\/+$/, "");
+    // Never forward the inference gateway's secret to a different metadata origin.
+    const headers: Record<string, string> =
+      new URL(baseUrl).origin === new URL(this.opts.baseUrl).origin && this.opts.apiKey
+        ? { authorization: `Bearer ${this.opts.apiKey}` }
+        : {};
+    const value = fetchMetadata(`${baseUrl}/api/native`, { headers })
+      .then(async (response) => (response.ok ? response.json() : undefined))
+      .catch(() => undefined);
+    this.nativeState = { time: Date.now(), value };
+    return value;
   }
 }

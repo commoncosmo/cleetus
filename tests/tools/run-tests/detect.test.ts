@@ -27,6 +27,34 @@ afterEach(async () => {
 });
 
 describe("detectTestCommand", () => {
+  for (const pm of ["npm", "pnpm", "yarn"]) {
+    test(`${pm} scaffold with no test script refuses Bun fallback but retains its build check`, async () => {
+      await writeFile(
+        join(dir, "package.json"),
+        JSON.stringify({
+          devEngines: { packageManager: { name: pm } },
+          scripts: { build: "tsc && vite build" },
+        }),
+      );
+      const tests = await detectTestCommand(dir, CFG, whichOnly("bun"));
+      expect(tests.command).toBeNull();
+      expect(tests.warnings.join(" ")).toContain("existing build check");
+      expect((await detectTestCommand(dir, CFG, whichOnly("bun"), "build")).command?.argv).toEqual([
+        pm,
+        "run",
+        "build",
+      ]);
+    });
+  }
+
+  test("an npm project may explicitly opt into Bun tests through configuration", async () => {
+    await writeFile(join(dir, "package.json"), JSON.stringify({ packageManager: "npm@11.0.0" }));
+    expect(
+      (await detectTestCommand(dir, { ...CFG, command: ["bun", "test"] }, whichOnly("bun"))).command
+        ?.argv,
+    ).toEqual(["bun", "test"]);
+  });
+
   test("config.command string short-circuits detection (runnerId config)", async () => {
     const r = await detectTestCommand(dir, { ...CFG, command: "make test" }, whichOnly());
     expect(r.command).toEqual({ runnerId: "config", argv: ["make", "test"] });
@@ -77,23 +105,24 @@ describe("detectTestCommand", () => {
     expect(r.command?.argv).toEqual(["npm", "test"]);
   });
 
-  test("package.json, no script, bun on PATH → bun test", async () => {
+  test("package.json, no script, bun on PATH does not select an undeclared runner", async () => {
     await writeFile(join(dir, "package.json"), "{}");
     const r = await detectTestCommand(dir, CFG, whichOnly("bun"));
-    expect(r.command?.argv).toEqual(["bun", "test"]);
+    expect(r.command).toBeNull();
+    expect(r.warnings.join(" ")).toContain("Bun on PATH does not select");
   });
 
   test("package.json, no script, no bun → warning, falls through to null", async () => {
     await writeFile(join(dir, "package.json"), "{}");
     const r = await detectTestCommand(dir, CFG, whichOnly());
     expect(r.command).toBeNull();
-    expect(r.warnings).toContain("node tests unavailable: no test script and bun not found");
+    expect(r.warnings.join(" ")).toContain("no project test script");
   });
 
   test("malformed package.json is treated as no test script", async () => {
     await writeFile(join(dir, "package.json"), "{ not json");
     const r = await detectTestCommand(dir, CFG, whichOnly("bun"));
-    expect(r.command?.argv).toEqual(["bun", "test"]); // falls to the bun-on-PATH branch
+    expect(r.command).toBeNull();
   });
 
   test("pyproject.toml + pytest on PATH → pytest with summaryRegex", async () => {

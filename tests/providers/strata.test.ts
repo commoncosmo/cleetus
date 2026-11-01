@@ -4,6 +4,7 @@ import { buildProvider } from "../../src/providers/factory";
 import { ModelContextCache } from "../../src/providers/model-context-cache";
 import { ProviderRegistry } from "../../src/providers/registry";
 import { StrataProvider } from "../../src/providers/strata";
+import { parseStrataNativeContext } from "../../src/providers/strata-context";
 import { toolCallEnvelope } from "../../src/providers/structured-output";
 import type { ChatOptions, StreamEvent } from "../../src/providers/types";
 import { providerEnvironmentChecks } from "../../src/setup/provider-environment";
@@ -47,6 +48,121 @@ const tool = {
   description: "Echo a value",
   parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
 };
+
+test("discovers the desktop runtime window reported by /v1/models meta.context", async () => {
+  serve = (url) =>
+    url.endsWith("/models")
+      ? Response.json({
+          data: [{ id: "iq3_s", meta: { label: "Qwen3.8-Flash-Next IQ3_S", context: 65536 } }],
+        })
+      : new Response("not found", { status: 404 });
+  const provider = new StrataProvider({ baseUrl: "http://fixture", contextLength: 131072 });
+  expect(await provider.listModels()).toEqual([{ id: "iq3_s", contextLength: 65536 }]);
+  expect(await provider.probeModelContextInfo("iq3_s")).toEqual({
+    window: 65536,
+    source: "loaded",
+  });
+  expect(await provider.readinessWarnings("iq3_s")).toEqual([]);
+});
+
+test("ct4 native gateway resolves a matched desktop instance through an explicit metadata root", async () => {
+  serve = (url) =>
+    url.endsWith("/v1/models")
+      ? models()
+      : url === "http://desktop:8791/api/native"
+        ? Response.json({
+            instances: [
+              { id: "50e19fe5", apiModelId: "other", status: "ready", context: 262144 },
+              {
+                id: "selected",
+                apiModelId: "iq3_s",
+                status: "ready",
+                context: 65536,
+                metrics: { engine: { max_context: 32768 } },
+              },
+            ],
+          })
+        : new Response("not found", { status: 404 });
+  const provider = buildProvider("strata", "http://fixture", "gateway-secret", {
+    metadataUrl: "http://desktop:8791",
+    contextLength: 131072,
+  }) as StrataProvider;
+  expect(await provider.probeModelContextInfo("iq3_s")).toEqual({
+    window: 32768,
+    source: "loaded",
+  });
+  expect(
+    new Headers(requests.find((request) => request.url.includes("desktop"))?.init?.headers).has(
+      "authorization",
+    ),
+  ).toBe(false);
+  expect(
+    new Headers(requests.find((request) => request.url.endsWith("/v1/models"))?.init?.headers).get(
+      "authorization",
+    ),
+  ).toBe("Bearer gateway-secret");
+  expect(await provider.readinessWarnings("iq3_s")).toEqual([]);
+  expect(requests.filter((request) => request.url.endsWith("/api/native"))).toHaveLength(1);
+});
+
+test("native context matches instance identity and refuses ambiguous, stopped, or architectural-only evidence", () => {
+  const row = { id: "iq3_s", meta: { instanceId: "selected" } };
+  const ready = { id: "selected", apiModelId: "iq3_s", status: "ready", context: 32768 };
+  expect(parseStrataNativeContext("iq3_s", row, { instances: [ready] })).toBe(32768);
+  expect(
+    parseStrataNativeContext("iq3_s", undefined, {
+      instances: [
+        ready,
+        { id: "other", apiModelId: "other", aliases: ["iq3_s"], status: "ready", context: 262144 },
+      ],
+    }),
+  ).toBe(32768);
+  for (const instance of [
+    { ...ready, id: "other" },
+    { ...ready, apiModelId: "other" },
+    { ...ready, status: "stopped" },
+    { ...ready, context: undefined, max_context_length: 262144 },
+    { ...ready, context: "32k" },
+  ]) {
+    expect(parseStrataNativeContext("iq3_s", row, { instances: [instance] })).toBeUndefined();
+  }
+  expect(
+    parseStrataNativeContext("iq3_s", undefined, {
+      instances: [ready, { ...ready, id: "duplicate" }],
+    }),
+  ).toBeUndefined();
+});
+
+test("a /v1-only gateway keeps context unknown without guessing from the Qwen label", async () => {
+  const provider = new StrataProvider({ baseUrl: "http://fixture" });
+  expect(await provider.probeModelContextInfo("iq3_s")).toBeUndefined();
+  expect((await provider.readinessWarnings("iq3_s")).join(" ")).toContain("metadata_url");
+  expect(await provider.listModels()).toEqual([{ id: "iq3_s" }]);
+});
+
+test("metadata_url is explicit Strata-only configuration", () => {
+  expect(
+    ProviderConfigSchema.safeParse({
+      type: "strata",
+      base_url: "http://fixture",
+      metadata_url: "http://desktop:8791",
+    }).success,
+  ).toBe(true);
+  expect(
+    ProviderConfigSchema.safeParse({
+      type: "strata",
+      base_url: "http://fixture",
+      metadata_url: "not a URL",
+    }).success,
+  ).toBe(false);
+  expect(
+    ProviderConfigSchema.safeParse({
+      type: "ollama",
+      base_url: "http://fixture",
+      metadata_url: "http://desktop:8791",
+    }).success,
+  ).toBe(false);
+});
 
 test("Strata config, factory and alias metadata select Qwen without renaming the wire model", async () => {
   expect(

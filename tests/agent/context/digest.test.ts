@@ -1,5 +1,6 @@
 import { describe, expect, it, test } from "bun:test";
 import {
+  type DigestState,
   SummaryTimeoutError,
   buildDigestMessage,
   compact,
@@ -82,7 +83,8 @@ test("compact folds a normal slice in one summarizer call", async () => {
     { maxSummaryInputTokens: 6000 },
   );
   expect(calls).toBe(1);
-  expect(r.state.text).toBe("summary text");
+  expect(r.state.text).toContain("summary text");
+  expect(r.state.text).toContain("/p/a.ts");
   expect(r.state.coveredThroughIndex).toBe(1);
   expect(r.ok).toBe(true);
   expect(r.partial).toBe(false);
@@ -162,7 +164,7 @@ test("compact retries once before falling back", async () => {
     { maxSummaryInputTokens: 6000 },
   );
   expect(attempts).toBe(2);
-  expect(r.state.text).toBe("second ok");
+  expect(r.state.text).toContain("second ok");
   expect(r.partial).toBe(false);
 });
 
@@ -263,4 +265,195 @@ test("degraded chunking preserves structured verification and its result across 
   );
   expect(result.state.text).toContain('run_tests {"check":"build"}');
   expect(result.state.text).toContain("build failed: missing property model");
+});
+
+test("Ripple documentation, requested framework, and compiler errors survive repeated degraded compaction", async () => {
+  const messages: Message[] = [
+    { role: "user", content: "Create a Vite/TypeScript site with Ripple for the UI." },
+    {
+      role: "assistant",
+      content: "",
+      toolCalls: [
+        {
+          id: "docs",
+          name: "web_fetch",
+          args: { url: "https://www.ripple-ts.com/llms.txt", query: "track" },
+        },
+      ],
+    },
+    { role: "tool", toolCallId: "docs", content: "external manual\n".repeat(5000) },
+    {
+      role: "assistant",
+      content: "",
+      toolCalls: [{ id: "build", name: "run_tests", args: { check: "build" } }],
+    },
+    {
+      role: "tool",
+      toolCallId: "build",
+      content:
+        "build failed\nsrc/counter.test.ts TS2307 Cannot find module 'vitest'\nsrc/main.ts TS2307 Cannot find module './App.tsrx'\nsrc/main.ts TS2322 HTMLElement | null",
+    },
+  ];
+  const timeout = async () => {
+    throw new SummaryTimeoutError(30);
+  };
+  let result = await compact(undefined, messages, 5, timeout, { maxSummaryInputTokens: 1000 });
+  for (let i = 0; i < 5; i++) {
+    result = await compact(
+      result.state,
+      Array.from({ length: 35 }, (_, j) => _edit(`src/other-${i}-${j}.ts`)),
+      40 + i * 35,
+      timeout,
+      { maxSummaryInputTokens: 6000 },
+    );
+  }
+  expect(result.state.text).toContain("site with Ripple");
+  expect(result.state.text).toContain("https://www.ripple-ts.com/llms.txt");
+  expect(result.state.text).toContain("reuse web_fetch query/start_line");
+  expect(result.state.text).toContain("Cannot find module 'vitest'");
+  expect(result.state.text).toContain("HTMLElement | null");
+  expect(result.state.text).not.toContain("external manual");
+  expect(result.state.text.length).toBeLessThanOrEqual(4000);
+});
+
+test("deterministic check evidence survives a successful but incomplete summary and updates on repair", async () => {
+  const failed = await compact(
+    undefined,
+    [
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [{ id: "b", name: "run_tests", args: { check: "build" } }],
+      },
+      { role: "tool", toolCallId: "b", content: "TS2307 Cannot find module './App.tsrx'" },
+    ],
+    2,
+    async () => "Working on the UI",
+    { maxSummaryInputTokens: 6000 },
+  );
+  expect(failed.state.text).toContain("TS2307");
+  const repaired = await compact(
+    failed.state,
+    [
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [{ id: "b2", name: "run_tests", args: { check: "build" } }],
+      },
+      { role: "tool", toolCallId: "b2", content: "✓ build passed" },
+    ],
+    4,
+    async () => "Repaired the UI",
+    { maxSummaryInputTokens: 6000 },
+  );
+  expect(repaired.state.text).toContain("build passed");
+  expect(repaired.state.text).not.toContain("TS2307");
+});
+
+test("documentation searches do not supersede actual build diagnostics", async () => {
+  const result = await compact(
+    undefined,
+    [
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          {
+            id: "b",
+            name: "bash",
+            args: { command: "npm run build 2>&1 | Select-Object -First 60" },
+          },
+        ],
+      },
+      { role: "tool", toolCallId: "b", content: "TS2307 Cannot find module './App.tsrx'" },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          {
+            id: "search",
+            name: "bash",
+            args: { command: "Select-String -Path ripple.txt -Pattern 'build'" },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        toolCallId: "search",
+        content: "The build section describes the Vite plugin",
+      },
+    ],
+    4,
+    async () => "Looked into the build",
+    { maxSummaryInputTokens: 6000 },
+  );
+  expect(result.state.recoveryFacts?.["check:build"]).toContain("TS2307");
+  expect(result.state.recoveryFacts?.["check:build"]).not.toContain("Select-String");
+});
+
+test("does not duplicate the caller's verbatim active request during degraded compaction", async () => {
+  const request = "Create a Vite/TypeScript site with Ripple";
+  const result = await compact(
+    undefined,
+    [{ role: "user", content: request }, _edit("src/App.tsrx")],
+    2,
+    async () => {
+      throw new SummaryTimeoutError(30);
+    },
+    { maxSummaryInputTokens: 6000, activeRequest: request },
+  );
+  expect(result.state.text).not.toContain(request);
+  expect(result.state.text).toContain("src/App.tsrx");
+});
+
+test("repeated failed summaries back off for three compactions, then probe the summarizer again", async () => {
+  let calls = 0;
+  let state: DigestState | undefined;
+  const summarize = async () => {
+    calls++;
+    throw new SummaryTimeoutError(30);
+  };
+  for (let i = 1; i <= 5; i++) {
+    const result = await compact(state, [_edit(`src/file-${i}.ts`)], i, summarize, {
+      maxSummaryInputTokens: 6000,
+      summaryKey: "strata:iq3_s",
+    });
+    state = result.state;
+    expect(result.partial).toBe(true);
+    expect(result.skippedSummary).toBe(i >= 3);
+    expect(state.text).toContain(`file-${i}.ts`);
+  }
+  expect(calls).toBe(2);
+  expect(state?.coveredThroughIndex).toBe(5);
+  state = (
+    await compact(state, [_edit("src/probe.ts")], 6, summarize, {
+      maxSummaryInputTokens: 6000,
+      summaryKey: "strata:iq3_s",
+    })
+  ).state;
+  expect(calls).toBe(3);
+  await compact(
+    state,
+    [_edit("src/new-model.ts")],
+    7,
+    async () => {
+      calls++;
+      return "new model recovered";
+    },
+    { maxSummaryInputTokens: 6000, summaryKey: "other:model" },
+  );
+  expect(calls).toBe(4);
+  const manual = await compact(
+    state,
+    [_edit("src/manual.ts")],
+    7,
+    async () => {
+      calls++;
+      return "manual retry";
+    },
+    { maxSummaryInputTokens: 6000, summaryKey: "strata:iq3_s", forceSummary: true },
+  );
+  expect(calls).toBe(5);
+  expect(manual.partial).toBe(false);
+  expect(manual.state.summaryFailures).toBe(0);
 });

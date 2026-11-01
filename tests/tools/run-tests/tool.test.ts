@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ExecOptions, ExecResult, Sandbox } from "../../../src/sandbox/types";
 import { SandboxUnavailableError } from "../../../src/sandbox/types";
 import { buildTestRunner } from "../../../src/tools/run-tests/index";
@@ -213,6 +216,46 @@ describe("RunTestsTool", () => {
 });
 
 describe("buildTestRunner", () => {
+  test("ct2 npm scaffold refuses undeclared tests, preserves a failed build, and detects an added test script", async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), "ct2-runner-"));
+    try {
+      const pkg = {
+        devEngines: { packageManager: { name: "npm" } },
+        scripts: { build: "tsc && vite build" },
+      };
+      await writeFile(join(projectDir, "package.json"), JSON.stringify(pkg));
+      await writeFile(join(projectDir, "counter.test.ts"), "import { test } from 'vitest';\n");
+      const built = await buildTestRunner(
+        { enabled: true, timeoutMs: 1000, maxOutputLines: 20 },
+        projectDir,
+      );
+      const { sandbox, calls } = fakeSandbox({
+        exitCode: 2,
+        stderr: "TS2307 Cannot find module 'vitest'",
+      });
+      const tool = new RunTestsTool(sandbox, built.resolve, CFG);
+      const context = { ...ctx, projectDir };
+      const tests = await tool.run({ filter: "createCounter" }, context);
+      expect(tests.ok).toBe(false);
+      expect(tests.verification).toBeUndefined();
+      expect(tests.errorMessage).toContain("no project test script");
+      expect(calls).toHaveLength(0);
+      const build = await tool.run({ check: "build" }, context);
+      expect(calls[0]?.command).toBe("npm run build");
+      expect(build.ok).toBe(false);
+      expect(build.errorMessage).toContain("TS2307");
+      expect(build.verification?.check).toBe("build");
+      expect(build.verification?.exitCode).toBe(2);
+      await writeFile(
+        join(projectDir, "package.json"),
+        JSON.stringify({ ...pkg, scripts: { ...pkg.scripts, test: "vitest run" } }),
+      );
+      expect((await built.resolve(projectDir)).runner?.argv).toEqual(["npm", "test"]);
+    } finally {
+      await rm(projectDir, { recursive: true, force: true });
+    }
+  });
+
   test("disabled → not registered, resolver yields no runner", async () => {
     const built = await buildTestRunner(
       { enabled: false, command: undefined, timeoutMs: 1, maxOutputLines: 1 },

@@ -140,11 +140,17 @@ export class ModelContextCache {
 
   /** Throttled targeted /api/show probe for one model, used on a true miss to resolve a window
    *  that /api/ps will never report (cloud model). Configured fallbacks keep seeking loaded evidence.
+   *  Providers opting into refreshLoadedContext also reprobe loaded aliases after reloads.
    *  `probeInFlight` bounds to one probe per model; `refreshIntervalMs` bounds the rate. */
   probe(provider: string, model: string): Promise<void> {
     const key = ModelContextCache.key(provider, model);
     const existing = this.byKey.get(key);
-    if (existing && existing.source !== "configured") return Promise.resolve();
+    if (
+      existing &&
+      existing.source !== "configured" &&
+      !(existing.source === "loaded" && this.providers.get(provider).refreshLoadedContext)
+    )
+      return Promise.resolve();
     if (this.probeInFlight.has(key)) return Promise.resolve();
     const last = this.lastProbe.get(key) ?? Number.NEGATIVE_INFINITY;
     if (this.now() - last < this.refreshIntervalMs) return Promise.resolve();
@@ -158,10 +164,13 @@ export class ModelContextCache {
    *   - missing → targeted /api/show probe + /api/ps list-refresh
    *   - architectural → /api/ps list-refresh only (seek the authoritative loaded window)
    *   - configured → list-refresh and targeted native probe (seek loaded evidence)
-   *   - loaded → nothing. */
+   *   - loaded → targeted probe only for providers opting into loaded-alias refresh. */
   getInfo(provider: string, model: string): WindowInfo | undefined {
     const v = this.byKey.get(ModelContextCache.key(provider, model));
-    if (v?.source === "loaded") return v;
+    if (v?.source === "loaded") {
+      if (this.providers.get(provider).refreshLoadedContext) void this.probe(provider, model);
+      return v;
+    }
     void this.refresh(provider);
     if (v === undefined || v.source === "configured") void this.probe(provider, model);
     return v;

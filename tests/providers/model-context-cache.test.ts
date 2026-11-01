@@ -99,6 +99,25 @@ function reg(provider: string, p: Provider): ProviderRegistry {
 }
 
 describe("ModelContextCache", () => {
+  it("refreshes opted-in loaded windows when a Strata alias is reloaded with a smaller context", async () => {
+    let now = 0;
+    let window = 65536;
+    const provider = new NativeLoadedProbe();
+    Object.assign(provider, {
+      refreshLoadedContext: true,
+      probeModelContextInfo: async () => ({ window, source: "loaded" as const }),
+    });
+    const cache = new ModelContextCache(reg("strata", provider), {
+      now: () => now,
+      refreshIntervalMs: 5000,
+    });
+    await cache.prime([{ provider: "strata", model: "m" }]);
+    expect(cache.getInfo("strata", "m")).toEqual({ window: 65536, source: "loaded" });
+    window = 8192;
+    now = 6000;
+    await cache.probe("strata", "m");
+    expect(cache.getInfo("strata", "m")).toEqual({ window: 8192, source: "loaded" });
+  });
   it("preserves provider-native loaded probe evidence", async () => {
     const cache = new ModelContextCache(reg("llama", new NativeLoadedProbe()));
     await cache.prime([{ provider: "llama", model: "m" }]);

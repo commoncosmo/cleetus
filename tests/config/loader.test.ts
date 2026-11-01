@@ -19,13 +19,14 @@ describe("loadConfig", () => {
     const path = join(dir, "config.yaml");
     await writeFile(
       path,
-      "providers:\n  lab:\n    type: strata\n    base_url: http://jethro:47832\n    context_length: 32768\ndefault_provider: lab\ndefault_model: iq3_s\n",
+      "providers:\n  lab:\n    type: strata\n    base_url: http://jethro:47832\n    context_length: 32768\n    metadata_url: http://jethro:8791\ndefault_provider: lab\ndefault_model: iq3_s\n",
     );
     const cfg = await loadConfig({ globalPath: path, projectDir: dir });
     expect(cfg.providers.lab).toMatchObject({
       type: "strata",
       baseUrl: "http://jethro:47832",
       contextLength: 32768,
+      metadataUrl: "http://jethro:8791",
     });
     expect(cfg.defaultModel).toBe("iq3_s");
   });

@@ -75,6 +75,7 @@ export function retrievalToolMadeProgress(
   result: ToolResult,
 ): boolean {
   if (!result.ok) return false;
+  if (tool === "web_fetch" && result.documentation?.matched === false) return false;
   if (
     kind !== null &&
     tool === "web_search" &&

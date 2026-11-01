@@ -241,6 +241,14 @@ describe("AgentRuntime", () => {
   it("only replays standalone verifiers and includes their working directory", () => {
     expect(verificationReplayContext("bash", { command: "bun run build" })).not.toBeNull();
     expect(
+      verificationReplayContext("bash", { command: "npm run build 2>&1 | Out-String -Width 200" }),
+    ).toBe(verificationReplayContext("bash", { command: "npm run build" }));
+    expect(
+      verificationReplayContext("bash", {
+        command: "npm run build 2>&1 | Select-Object -First 60 | Out-String",
+      }),
+    ).not.toBeNull();
+    expect(
       verificationReplayContext("bash", { command: "bun test 2>&1 | grep 'passed|failed'" }),
     ).not.toBeNull();
     for (const command of [
@@ -250,6 +258,10 @@ describe("AgentRuntime", () => {
       "bun test > results.txt",
       "bun test && touch stamp",
       "bun test $(touch stamp)",
+      "npm run build | Out-File build.log",
+      "npm run build | Out-String -Width 200; Remove-Item file.txt",
+      "npm run build | Select-Object -First 60 -OutVariable log",
+      "npm run build | Out-String -Width (Remove-Item file.txt)",
     ]) {
       expect(verificationReplayContext("bash", { command })).toBeNull();
     }

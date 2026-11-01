@@ -100,6 +100,7 @@ function normalize(raw: RawConfig): Partial<CleetusConfig> {
       baseUrl: p.base_url,
       apiKey: p.api_key,
       ...(p.context_length === undefined ? {} : { contextLength: p.context_length }),
+      ...(p.metadata_url === undefined ? {} : { metadataUrl: p.metadata_url }),
     };
   }
   const mcpServers: Record<string, McpServerConfig> = {};

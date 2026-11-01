@@ -38,6 +38,7 @@ import type {
   WindowInfo,
 } from "../providers/types";
 import type { VisionSupport } from "../providers/vision";
+import { isScaffoldOnlyTask } from "../skills/trigger";
 import type { ToolDispatcher } from "../tools/dispatcher";
 import { InvestigationNotesTool, investigationNotes } from "../tools/investigation-notes";
 import type { ToolRegistry } from "../tools/registry";
@@ -66,6 +67,7 @@ import {
   hiddenToolRedirect,
 } from "./capability";
 import { isImplementationPath } from "./change-kind";
+import { CodingProgressGuard } from "./coding-progress";
 import {
   classifyTask,
   isCodingTask,
@@ -625,7 +627,17 @@ export function verificationReplayContext(tool: string, args: unknown): string |
     )
   )
     return null;
-  if (!segments.slice(1).every((segment) => /^(?:tail|head|grep|rg)\b/.test(segment))) return null;
+  if (
+    !segments
+      .slice(1)
+      .every(
+        (segment) =>
+          /^(?:tail|head|grep|rg)\b/.test(segment) ||
+          /^Select-Object\s+-(?:First|Last)\s+\d+$/i.test(segment) ||
+          /^Out-String(?:\s+-Width\s+\d+)?$/i.test(segment),
+      )
+  )
+    return null;
   return JSON.stringify([record.cwd ?? "", cd?.[1] ?? ""]);
 }
 
@@ -929,6 +941,7 @@ export class AgentRuntime {
   /** Previous turn's plan-mode value per session, to detect plan-mode entry (arc reset). */
   private wasPlanModeBySession: Map<string, boolean> = new Map();
   private trimBySession = new Map<string, TrimState>();
+  private codingCheckpoints = new Map<string, string>();
   private loopGuardBySession = new Map<string, LoopGuard>();
   private readCacheBySession = new Map<string, SessionReadCache>();
   /** Absolute paths this worker turn has read or written — a write_file over a path NOT in this
@@ -1005,6 +1018,7 @@ export class AgentRuntime {
 
   resetHistory(sessionId: string): void {
     this.historyBySession.delete(sessionId);
+    this.codingCheckpoints.delete(sessionId);
     this.warnedServed.delete(sessionId);
     this.latestTodosBySession.delete(sessionId);
     this.todoContractBySession.delete(sessionId);
@@ -1205,6 +1219,14 @@ export class AgentRuntime {
       .filter(Boolean)
       .join("\n");
     const notebookMessage: Message | null = notebook ? { role: "user", content: notebook } : null;
+    const checkpoint = this.codingCheckpoints.get(sessionId);
+    const checkpointMessage: Message | null = checkpoint
+      ? {
+          role: "user",
+          userRequest: null,
+          content: `<system-reminder>Confirmed execution state, derived from tool results rather than intended actions: ${checkpoint}</system-reminder>`,
+        }
+      : null;
     const systemPrompt = [baseSystemPrompt, toolHints].filter(Boolean).join("\n\n");
     const configured = this.opts.context?.() ?? DEFAULT_CONTEXT;
     const profile = this.opts.modelProfile?.(model, providerName);
@@ -1248,7 +1270,9 @@ export class AgentRuntime {
       responseReserveTokens: cfg.responseReserveTokens,
       systemPromptTokens: estimateTokens(systemPrompt),
       digestTokens: estimateTokens(state.digest.text),
-      evidenceTokens: notebookMessage ? messageTokens(notebookMessage) : 0,
+      evidenceTokens:
+        (notebookMessage ? messageTokens(notebookMessage) : 0) +
+        (checkpointMessage ? messageTokens(checkpointMessage) : 0),
       toolSchemaTokens,
       liveUserMessageTokens: keptUser ? messageTokens(keptUser) : 0,
     };
@@ -1313,6 +1337,7 @@ export class AgentRuntime {
             state: digest,
             ok,
             partial,
+            skippedSummary,
           } = await compact(
             state.digest,
             slice,
@@ -1330,6 +1355,8 @@ export class AgentRuntime {
             {
               maxSummaryInputTokens: cfg.maxSummaryInputTokens,
               maxElapsedMs: cfg.summaryTimeoutMs,
+              summaryKey: `${providerName}:${model}`,
+              activeRequest: originating?.userRequest ?? originating?.content,
             },
           );
           state.digest = digest;
@@ -1340,12 +1367,14 @@ export class AgentRuntime {
               messageCount: slice.length,
               elapsedMs: Date.now() - t0,
               outcome: ok ? "summarized" : partial ? "partial" : "dropped",
+              strategy: skippedSummary ? "extractive_cooldown" : "model",
             },
           });
           this.emitTrimNotice(
             sessionId,
             slice.length,
             ok ? "summarized" : partial ? "partial" : "dropped",
+            skippedSummary,
           );
         } else {
           state.digest = { text: "", coveredThroughIndex: newBoundary };
@@ -1374,6 +1403,7 @@ export class AgentRuntime {
       ...(systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : []),
       ...(digestMessage ? [digestMessage] : []),
       ...(notebookMessage ? [notebookMessage] : []),
+      ...(checkpointMessage ? [checkpointMessage] : []),
       ...reinjected,
       ...tail,
     ];
@@ -1395,6 +1425,7 @@ export class AgentRuntime {
       assembled = [
         ...system,
         ...(notebookMessage ? [notebookMessage] : []),
+        ...(checkpointMessage ? [checkpointMessage] : []),
         ...(keptUser ? [keptUser] : []),
         ...recent,
       ];
@@ -1529,6 +1560,11 @@ export class AgentRuntime {
           maxSummaryInputTokens: cfg.maxSummaryInputTokens,
           instruction,
           maxElapsedMs: cfg.summaryTimeoutMs,
+          summaryKey: `${choice.provider}:${model}`,
+          forceSummary: true,
+          activeRequest:
+            history[liveTurnStart(history)]?.userRequest ??
+            history[liveTurnStart(history)]?.content,
         },
       );
       state.digest = digest;
@@ -1640,10 +1676,12 @@ export class AgentRuntime {
     sessionId: string,
     count: number,
     kind: "summarized" | "partial" | "dropped",
+    cooldown = false,
   ): void {
     const n = `${count} earlier message${count === 1 ? "" : "s"}`;
-    const text =
-      kind === "summarized"
+    const text = cooldown
+      ? `Context trimmed: compacted ${n} with the fast extractive fallback (summarizer cooldown; no failed model call).`
+      : kind === "summarized"
         ? `Context trimmed: summarized ${n} to fit the window.`
         : kind === "partial"
           ? `Context trimmed: compacted ${n} (partial summary — summarizer degraded).`
@@ -2413,6 +2451,14 @@ export class AgentRuntime {
       reminded.add(vp.pin);
       this.remindedPinsBySession.set(sessionId, reminded);
     }
+    if (
+      isCodingTask(userInput) &&
+      /https?:\/\//i.test(userInput) &&
+      (this.opts.webToolsEnabled?.() ?? true)
+    ) {
+      turnContent +=
+        "\n\n<system-reminder>Read the supplied framework documentation with web_fetch, which caches the source for this session. Read only the relevant sections with query or start_line; reuse the same URL instead of downloading full manuals through the shell. Preserve confirmed APIs and unresolved build diagnostics. Establish a minimal working integration before adding optional behavior or test dependencies. After a failed build, correct its concrete diagnostics before repeating broad documentation research.</system-reminder>";
+    }
     if (sticky.inject.length > 0) {
       turnContent = [turnContent, ...sticky.inject].join("\n\n");
     }
@@ -2543,6 +2589,11 @@ export class AgentRuntime {
     let failedToolCalls = 0;
     let unproductiveToolCalls = 0;
     let successfulEdits = 0;
+    this.codingCheckpoints.delete(sessionId);
+    const codingProgress =
+      isCodingTask(userInput) && !planNow && !codeInvestigation
+        ? new CodingProgressGuard(projectDir, isScaffoldOnlyTask(userInput))
+        : null;
     let failedWrites = 0;
     const verificationResults = new Map<string, VerificationResult>();
     const renderRecovery = new RenderRecoveryGuard();
@@ -4746,8 +4797,15 @@ export class AgentRuntime {
             if (result.ok) result.output = (result.output ?? "") + status;
             else result.errorMessage = (result.errorMessage ?? "verification failed") + status;
           }
+          const codingObservation = !cachedVerification
+            ? codingProgress?.observe(call, result, maskedVerification ? null : verificationKey)
+            : undefined;
+          if (codingProgress)
+            this.codingCheckpoints.set(sessionId, codingProgress.snapshot().slice(0, 1800));
           const toolMadeProgress =
-            !cachedVerification && retrievalToolMadeProgress(turnRetrievalKind, call.name, result);
+            !cachedVerification &&
+            retrievalToolMadeProgress(turnRetrievalKind, call.name, result) &&
+            codingObservation?.madeProgress !== false;
           if (!cachedVerification && !cachedSetupAction) {
             if (result.ok) successfulToolCalls++;
             else failedToolCalls++;
@@ -5143,6 +5201,18 @@ export class AgentRuntime {
           }
           if (repeatedVerificationReminder) {
             baseContent = `${baseContent}\n\n${repeatedVerificationReminder}`;
+          }
+          if (codingObservation?.reminder) {
+            baseContent += `\n\n<system-reminder>${codingObservation.reminder}</system-reminder>`;
+            log.append({
+              sessionId,
+              type: "notice",
+              payload: {
+                kind: "coding_progress_checkpoint",
+                level: "warn",
+                text: codingObservation.reminder,
+              },
+            });
           }
           if (result.ok && call.name === "read_file") {
             const pathArg = (call.args as { path?: unknown }).path;
