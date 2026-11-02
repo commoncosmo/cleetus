@@ -10,8 +10,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { loadInstructions } from "../../src/agent/instructions";
 import { resolveConfigRoot } from "../../src/config/config-root";
 import { resolveLaunchScope } from "../../src/config/launch-scope";
+import { loadConfig } from "../../src/config/loader";
 import { migrateWindowsData } from "../../src/config/migrate-data";
 import { type UserPathOptions, userPaths } from "../../src/config/user-paths";
 
@@ -69,6 +71,38 @@ test("migration moves the config tree with WAL files and the default global work
   );
   expect(resolveConfigRoot(undefined, home, root, options)).toBe(paths.nativeRoot);
   expect(migrateWindowsData(home, options, true).applied).toBe(false);
+});
+
+test("a migrated native root loads global providers and instructions from a fresh project", async () => {
+  const paths = legacy();
+  const yaml =
+    "providers:\n  strata:\n    type: strata\n    base_url: http://fixture:47832\n    context_length: 131072\ndefault_provider: strata\ndefault_model: iq3_s\n";
+  const instructions = "Use the configured Strata provider.\n";
+  writeFileSync(join(paths.legacyConfig, "config.yaml"), yaml);
+  writeFileSync(join(paths.legacyConfig, "instructions.md"), instructions);
+  migrateWindowsData(home, options, true);
+  const freshProject = join(root, "migtest");
+  mkdirSync(freshProject);
+  const configRoot = resolveConfigRoot(undefined, home, freshProject, options);
+  const config = await loadConfig({
+    globalPath: join(configRoot, "config.yaml"),
+    projectDir: freshProject,
+    globalOnly: true,
+  });
+  expect(config.providers.strata).toMatchObject({
+    type: "strata",
+    baseUrl: "http://fixture:47832",
+    contextLength: 131072,
+  });
+  expect(config.defaultModel).toBe("iq3_s");
+  expect(
+    await loadInstructions({
+      globalPath: join(configRoot, "instructions.md"),
+      startDir: freshProject,
+      includeProjectInstructions: false,
+    }),
+  ).toBe(instructions.trim());
+  expect(readFileSync(join(configRoot, "config.yaml"), "utf8")).toBe(yaml);
 });
 test("custom global workspace paths remain configured and untouched", () => {
   const paths = legacy();

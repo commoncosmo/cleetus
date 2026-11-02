@@ -889,9 +889,14 @@ still apply.
 ## Instruction files
 
 Loaded and concatenated in order:
-1. `~/.config/cleetus/instructions.md`
+1. `<global-data-directory>/instructions.md` — `~/.config/cleetus` on Unix,
+   `%LOCALAPPDATA%\Cleetus` on native Windows installations, or `<install>\data` in portable mode.
 2. `<project>/.cleetus/instructions.md` (nearest ancestor)
 3. `<project>/CLEETUS.md` (nearest ancestor)
+
+Existing Windows installations keep using `~/.config/cleetus` until migrated with
+`cleetus migrate-data --yes`. An explicit `--config-dir` selects the global instruction
+directory too. See the [Windows migration guide](docs/windows.md#migrating-existing-windows-installations).
 
 ## Memory
 
