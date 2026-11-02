@@ -1,5 +1,48 @@
-import { powershellArgs } from "../../sandbox/shell";
 import { CONTROL_PROBE_SCRIPT } from "./control-probe";
+
+/** Render launches are direct commands, not PowerShell programs. Preserve quoted
+ * arguments as literals rather than evaluating substitutions in a second shell. */
+export function windowsRenderArgv(command: string): string[] {
+  const args: string[] = [];
+  let value = "";
+  let quote = "";
+  let started = false;
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i]!;
+    if (quote) {
+      if (c === quote) {
+        if (command[i + 1] === quote) {
+          value += c;
+          i++;
+        } else quote = "";
+      } else value += c;
+    } else if (c === "'" || c === '"') {
+      quote = c;
+      started = true;
+    } else if (/\s/.test(c)) {
+      if (started) {
+        args.push(value);
+        value = "";
+        started = false;
+      }
+    } else {
+      value += c;
+      started = true;
+    }
+  }
+  if (quote) throw new Error("launchCommand has an unterminated quoted argument");
+  if (started) args.push(value);
+  if (!args.length || !/^(?:bun|bunx|npm|npx|pnpm|yarn)$/i.test(args[0]!))
+    throw new Error("launchCommand requires a supported package manager");
+  return args;
+}
+
+/** PowerShell 5.1 is used only for .cmd/.bat shims, with literal argv. No agent
+ * command or PowerShell 7 wrapper is evaluated by this internal launcher. */
+export function windowsShimScript(argv: string[]): string {
+  const literal = (s: string) => `'${s.replaceAll("'", "''")}'`;
+  return `$ErrorActionPreference='Stop'; try { & ${argv.map(literal).join(" ")}; exit $LASTEXITCODE } catch { [Console]::Error.WriteLine($_); exit 1 }`;
+}
 
 /** The server and CDP browser must share one MXC execution/container and its lifetime.
  * The outer executor's Job Object reaps all descendants on timeout/cancellation. */
@@ -9,13 +52,14 @@ export function windowsRenderScript(input: {
   expectedText?: string;
   expectedControl?: string;
   expectedAfterText?: string;
-  powershell: string;
   budgetMs: number;
 }): string {
   return `
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 const input = ${JSON.stringify(input)};
+const launch = ${JSON.stringify(windowsRenderArgv(input.launchCommand))};
+const shimScript = ${windowsShimScript.toString()};
 const override = process.env.CLEETUS_BROWSER;
 const candidates = override ? [override] : [
   ...['msedge.exe', 'chrome.exe', 'chromium.exe'].map(name => Bun.which(name)),
@@ -24,8 +68,20 @@ const candidates = override ? [override] : [
 const browser = candidates.filter(Boolean).map(path => Bun.which(path) || path).find(path => existsSync(path));
 if (!browser) { console.error('CLEETUS_BROWSER_UNAVAILABLE: Install Microsoft Edge or Chrome, or set CLEETUS_BROWSER to its executable.'); process.exit(69); }
 let server;
-try { server = Bun.spawn(${JSON.stringify([input.powershell, ...powershellArgs(input.launchCommand)])}, {stdout:'pipe',stderr:'pipe'}); }
-catch (error) { console.error('CLEETUS_RENDER_BACKEND_ERROR: Cannot launch the selected PowerShell: ' + (error.code || error.message)); process.exit(69); }
+try {
+  const executable = Bun.which(launch[0]);
+  if (!executable) throw new Error('Package manager not found: ' + launch[0]);
+  let argv = [executable,...launch.slice(1)];
+  if (/\\.(?:cmd|bat)$/i.test(executable)) {
+    const root = process.env.SystemRoot || process.env.SYSTEMROOT;
+    if (!root) throw new Error('SystemRoot is missing; cannot locate the Windows command-shim launcher');
+    const shell = join(root,'System32','WindowsPowerShell','v1.0','powershell.exe');
+    const encoded = Buffer.from(shimScript(argv),'utf16le').toString('base64');
+    argv = [shell,'-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',encoded];
+  }
+  server = Bun.spawn(argv, {stdout:'pipe',stderr:'pipe'});
+}
+catch (error) { console.error('CLEETUS_RENDER_BACKEND_ERROR: Cannot launch the development command: ' + (error.code || error.message)); process.exit(69); }
 let serverExited = false;
 server.exited.then(() => { serverExited = true; });
 let serverOutput = '';

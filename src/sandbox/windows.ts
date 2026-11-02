@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, parse, resolve } from "node:path";
 import { userPaths } from "../config/user-paths";
 import { secretDirPaths, secretFilePaths } from "../security/secret-paths";
 import { CLEETUS_SANDBOX_ACTIVE_ENV } from "./host";
-import { resolvePowerShell } from "./powershell";
+import { findPowerShell, resolvePowerShell } from "./powershell";
 import { normalizeWindowsResult } from "./powershell-output";
 import { powershellArgs } from "./shell";
 import { spawnCollect } from "./spawn";
@@ -29,7 +29,7 @@ export class WindowsSandbox implements Sandbox {
     private readonly projectDir: string,
     private readonly network: boolean,
     private readonly executor = windowsExecutorPath(),
-    private readonly powershell = Bun.which("pwsh.exe"),
+    private readonly powershell = findPowerShell(),
     private readonly home = homedir(),
   ) {}
 

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { release } from "node:os";
 import { join } from "node:path";
 import type { SandboxConfig } from "../config/types";
+import { findPowerShell } from "../sandbox/powershell";
 import { powershellArgs } from "../sandbox/shell";
 import { spawnCollect } from "../sandbox/spawn";
 import { WindowsSandbox, windowsExecutorPath } from "../sandbox/windows";
@@ -75,6 +76,7 @@ function defaultDeps(): WindowsEnvironmentDeps {
     osRelease: release(),
     executor: windowsExecutorPath(),
     which: (name) => {
+      if (name === "pwsh.exe") return findPowerShell();
       if (name !== "wt.exe") return Bun.which(name);
       try {
         return findWindowsTerminal();
@@ -132,20 +134,6 @@ export async function checkWindowsPrerequisites(
   });
   const pwsh = d.which("pwsh.exe");
   const needsShell = backend !== "docker";
-  if (pwsh && /[\\/]WindowsApps[\\/]/i.test(pwsh)) {
-    checks.push({
-      id: "powershell-packaging",
-      label: "PowerShell packaging",
-      requirement: backend === "host" ? "required" : "recommended",
-      status: backend === "host" ? "fail" : "warn",
-      detail:
-        backend === "host"
-          ? "The selected PowerShell resolves through WindowsApps/MSIX, which cannot run inside native MXC. An unpackaged PowerShell installation is required for this backend."
-          : "The selected PowerShell resolves through WindowsApps/MSIX. Native MXC requires an unpackaged installation; the selected backend does not require MXC.",
-      remedy:
-        "Install an unpackaged PowerShell MSI or ZIP alongside the Store version and put its pwsh.exe first on PATH. MSI: winget install --id Microsoft.PowerShell --exact --source winget --installer-type wix",
-    });
-  }
   checks.push({
     id: "powershell",
     label: "PowerShell 7.4+",
@@ -180,7 +168,7 @@ export async function checkWindowsPrerequisites(
           }
         : {}),
     });
-    if (valid && pwsh && !/[\\/]WindowsApps[\\/]/i.test(pwsh)) {
+    if (valid && pwsh) {
       let failure: string | null;
       try {
         failure = await d.health(cwd, d.executor, pwsh);
@@ -196,7 +184,7 @@ export async function checkWindowsPrerequisites(
         ...(failure
           ? {
               remedy:
-                "Install Windows updates and PowerShell 7.4+, or ask your administrator about application-control restrictions. Run cleetus doctor --windows after fixing the issue.",
+                "Check Windows updates, PowerShell 7.4+, and application-control restrictions. If the selected Store PowerShell fails the MXC probe, try an MSI or ZIP installation. Run cleetus doctor --windows after fixing the issue.",
             }
           : {}),
       });

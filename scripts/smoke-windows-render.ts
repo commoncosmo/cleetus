@@ -9,8 +9,9 @@ const project = mkdtempSync(join(resolve("dist/render-smoke"), "project-"));
 writeFileSync(join(project, "package.json"), JSON.stringify({ devEngines: { packageManager: { name: "npm" } }, scripts: { dev: "bun server.ts" } }));
 const html = `<html><body><style>.flex{display:flex}</style><h1>Windows render smoke</h1><div class="flex">one</div><div class="flex">two</div><div class="flex">three</div><button onclick="this.textContent='Clicked'">Click me</button></body></html>`;
 writeFileSync(join(project, "server.ts"), `await Bun.write('server.pid',String(process.pid)); Bun.serve({port:5198,fetch(){return new Response(${JSON.stringify(html)},{headers:{'content-type':'text/html'}})}});`);
-const sandbox = new WindowsSandbox(project, true, resolve(`dist/cleetus-windows-${process.arch}/native/wxc-exec.exe`));
+const sandbox = new WindowsSandbox(project, true, resolve(`dist/cleetus-windows-${process.arch}/native/wxc-exec.exe`), process.argv[2] ?? Bun.which("pwsh.exe"));
 try {
+  assert.equal(await sandbox.healthCheck(), null);
   const tool = new RenderCheckTool(sandbox, { timeoutMs: 35_000, maxOutputLines: 30 });
   const result = await tool.run({ launchCommand: "npm run dev", url: "http://localhost:5198", expectedText: "Windows render smoke", expectedControl: "Click me", expectedAfterText: "Clicked", expectStyled: true }, { projectDir: project, abortSignal: new AbortController().signal });
   console.log(JSON.stringify(result));
@@ -24,6 +25,13 @@ try {
     }
     throw new Error(`render server survived teardown: ${pid}`);
   };
+  await assertServerStopped();
+
+  // Exercise native .exe launching as well as npm's .cmd shim without replacing
+  // the package manager selected by the caller.
+  const native = await tool.run({launchCommand:"bun run dev",url:"http://localhost:5198",expectedText:"Windows render smoke",expectedControl:"Click me",expectedAfterText:"Clicked",expectStyled:true},{projectDir:project,abortSignal:new AbortController().signal});
+  assert.equal(native.ok,true,JSON.stringify(native));
+  assert.equal(native.verificationInteraction,true);
   await assertServerStopped();
 
   const missing = new RenderCheckTool({

@@ -37,7 +37,8 @@ const home = join(root, "home");
 mkdirSync(join(home, ".ssh"), { recursive: true });
 const secretFile = join(home, ".ssh/synthetic-secret");
 writeFileSync(secretFile, "synthetic secret");
-const sandbox = new WindowsSandbox(project, false, executor, Bun.which("pwsh.exe"), home);
+const powershell = process.argv[2] ?? Bun.which("pwsh.exe");
+const sandbox = new WindowsSandbox(project, false, executor, powershell, home);
 const signal = new AbortController().signal;
 const run = (command: string, protectProjectMetadata = false) =>
   sandbox.exec(command, { signal, timeoutMs: 15000, protectProjectMetadata });
@@ -75,6 +76,10 @@ assert.notEqual(
 );
 assert.equal(readFileSync(runtimeMarker, "utf8"), "trusted");
 assert.notEqual((await run(`[IO.File]::ReadAllText(${psPath(secretFile)})`)).exitCode, 0);
+const childRestrictions = `const fs=require('node:fs'); for (const op of [()=>fs.readFileSync(${JSON.stringify(secretFile)}),()=>fs.writeFileSync(${JSON.stringify(join(outside, "child-escape.txt"))},'escaped')]) { let denied=false;try{op()}catch(e){if(['EPERM','EACCES'].includes(e.code))denied=true;else throw e}if(!denied)throw Error('child restriction bypassed') } console.log('CHILD_RESTRICTIONS_PASS');`;
+const childResult = await run(`& ${psPath(Bun.which("bun.exe")!)} '-e' ${psPath(childRestrictions)}`);
+assert.equal(childResult.exitCode,0,childResult.stderr);
+assert.match(childResult.stdout,/CHILD_RESTRICTIONS_PASS/);
 assert.notEqual(
   (await run("cmd.exe /c exit 7 | Out-Null")).exitCode,
   0,
@@ -95,7 +100,7 @@ const server = Bun.serve({
     return new Response("network works");
   },
 });
-const online = new WindowsSandbox(project, true, executor, Bun.which("pwsh.exe"), home);
+const online = new WindowsSandbox(project, true, executor, powershell, home);
 try {
   const command = `Invoke-RestMethod 'http://127.0.0.1:${server.port}/' -TimeoutSec 3`;
   const allowed = await online.exec(command, { signal, timeoutMs: 10000 });
@@ -135,7 +140,7 @@ for (const directory of [".git", ".cleetus"]) {
   assert.equal((await run(`[IO.File]::WriteAllText(${psPath(file)}, 'trusted')`)).exitCode, 0);
 }
 const controller = new AbortController();
-const pending = sandbox.execArgv([exe, "--mxc-worker", "parent", project, outside], {
+const pending = sandbox.exec(`[IO.File]::WriteAllText(${psPath(join(project, "shell.pid"))}, [string]$PID); & ${[exe, "--mxc-worker", "parent", project, outside].map(psPath).join(" ")}`, {
   signal: controller.signal,
   timeoutMs: 20000,
 });
@@ -143,7 +148,7 @@ const readyDeadline = Date.now() + 15000;
 while (!existsSync(join(project, "grandchild.pid")) && Date.now() < readyDeadline)
   await Bun.sleep(100);
 assert.ok(existsSync(join(project, "grandchild.pid")), "grandchild failed to start");
-const pids = ["parent", "child", "grandchild"].map((p) =>
+const pids = ["shell", "parent", "child", "grandchild"].map((p) =>
   Number(readFileSync(join(project, `${p}.pid`), "utf8")),
 );
 const alive = (pid: number) => {

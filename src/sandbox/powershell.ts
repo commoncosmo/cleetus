@@ -1,12 +1,42 @@
-import { SandboxUnavailableError } from "./types";
+import { readlinkSync } from "node:fs";
+import { win32 } from "node:path";
 
-/** App execution aliases work at the host boundary but cannot be uv_spawn'ed inside
- * MXC. The underlying packaged executable is also unsupported; fail before a turn
- * instead of silently substituting another installation or weakening containment. */
-export async function resolvePowerShell(path: string | null): Promise<string | null> {
-  if (path && /[\\/]WindowsApps[\\/]/i.test(path))
-    throw new SandboxUnavailableError(
-      "The selected WindowsApps/MSIX PowerShell installation cannot run inside native MXC. Install an unpackaged PowerShell 7.4+ MSI or ZIP alongside it and put that pwsh.exe first on PATH. MSI: winget install --id Microsoft.PowerShell --exact --source winget --installer-type wix",
-    );
+/** Bun 1.3 cannot stat App Execution Aliases even when Windows can launch them.
+ * Resolve their registered target without running a shell or changing PATH. */
+function aliasTarget(path: string, readLink: (path: string) => string): string {
+  if (/[\\/]WindowsApps[\\/]/i.test(path)) {
+    try {
+      return win32.resolve(win32.dirname(path), readLink(path));
+    } catch {
+      /* Ordinary package executable or unavailable alias. */
+    }
+  }
   return path;
+}
+
+export function findPowerShell(
+  which: (name: string) => string | null = Bun.which,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+  readLink: (path: string) => string = readlinkSync,
+): string | null {
+  if (platform === "win32") {
+    const path = Object.entries(env).find(([name]) => name.toLowerCase() === "path")?.[1];
+    for (const entry of path?.split(";") ?? []) {
+      if (!entry.trim()) continue;
+      const candidate = win32.join(entry.replace(/^"|"$/g, ""), "pwsh.exe");
+      const found = which(aliasTarget(candidate, readLink));
+      if (found) return found;
+    }
+  }
+  return which("pwsh.exe");
+}
+
+/** Preserve the selected installation, resolving its Store alias if necessary.
+ * WindowsSandbox.healthCheck probes the actual MXC launch, regardless of path. */
+export async function resolvePowerShell(
+  path: string | null,
+  readLink: (path: string) => string = readlinkSync,
+): Promise<string | null> {
+  return path ? aliasTarget(path, readLink) : null;
 }

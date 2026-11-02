@@ -54,6 +54,7 @@ import { ProviderRegistry } from "../providers/registry";
 import { resolveStartupChoice } from "../providers/startup";
 import { truncateMapToBudget } from "../repomap/render";
 import { createSandboxWithInfo } from "../sandbox/factory";
+import { findPowerShell, resolvePowerShell } from "../sandbox/powershell";
 import { execProgram } from "../sandbox/program";
 import type { Sandbox } from "../sandbox/types";
 import { privateDirectory, privateFile } from "../security/private-state";
@@ -253,6 +254,7 @@ export async function buildAcpRuntime(options: AcpRuntimeOptions): Promise<AcpRu
     if (!isAbsolute(opts.shellExecutable))
       throw new Error("--shell-executable requires an absolute path to pwsh.exe");
     try {
+      opts.shellExecutable = (await resolvePowerShell(opts.shellExecutable))!;
       if (!statSync(opts.shellExecutable).isFile()) throw new Error("not a file");
       opts.shellExecutable = realpathSync(opts.shellExecutable);
     } catch {
@@ -327,7 +329,7 @@ export async function buildAcpRuntime(options: AcpRuntimeOptions): Promise<AcpRu
         (cwd, backend) =>
           checkWindowsPrerequisites(cwd, backend, {
             which: (name) =>
-              name === "pwsh.exe" && opts.shellExecutable ? opts.shellExecutable : Bun.which(name),
+              name === "pwsh.exe" ? (opts.shellExecutable ?? findPowerShell()) : Bun.which(name),
           }),
       ))
     ) {
@@ -449,7 +451,7 @@ export async function buildAcpRuntime(options: AcpRuntimeOptions): Promise<AcpRu
     shellExecutable: () =>
       sandboxHolder.current.shellExecutable?.() ??
       Promise.resolve(
-        Bun.which(sandboxHolder.current.shell === "powershell" ? "pwsh.exe" : "bash"),
+        sandboxHolder.current.shell === "powershell" ? findPowerShell() : Bun.which("bash"),
       ),
     exec: (command, opts) => sandboxHolder.current.exec(command, opts),
     dispose: () => realSandbox.dispose(),

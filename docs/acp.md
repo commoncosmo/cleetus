@@ -27,7 +27,7 @@ launch the protocol server. stdout contains only newline-delimited JSON-RPC;
 diagnostics go to stderr.
 
 On Windows, GUI editors may retain a different PATH from your terminal. Use
-`--shell-executable` to pin an unpackaged PowerShell installation explicitly:
+`--shell-executable` to pin a PowerShell installation explicitly:
 
 ```json
 {
@@ -38,10 +38,11 @@ On Windows, GUI editors may retain a different PATH from your terminal. Use
 
 Use an absolute path to `pwsh.exe`, with no extra quote characters in the JSON
 argument. This selects PowerShell for MXC preflight, every session's local shell,
-client-terminal commands, and browser verification. It overrides PATH without
-changing the editor's environment. MXC still requires an unpackaged PowerShell
-7.4+ MSI or ZIP; pointing this option at WindowsApps/MSIX does not bypass that
-restriction. The option currently supports Windows local host/none backends;
+and client-terminal commands. It overrides PATH without changing the editor's
+environment. MXC accepts Store/MSIX, MSI, and ZIP PowerShell 7.4+ when the selected
+executable passes the actual sandboxed launch/version probe. Browser verification
+launches its dev command independently, avoiding nested Store PowerShell activation
+inside MXC. The option currently supports Windows local host/none backends;
 Docker shell selection is separate. Omitting it preserves PATH-based selection.
 
 ## Windows prerequisites and execution boundaries
@@ -49,7 +50,7 @@ Docker shell selection is separate. Omitting it preserves PATH-based selection.
 Use the complete Windows distribution, including the shipped
 `native/wxc-exec.exe`. Run `cleetus doctor` from a terminal before configuring
 the editor. See [Windows setup](windows.md) for the supported Windows version,
-unpackaged PowerShell 7.4+, and optional development tools. The release includes
+PowerShell 7.4+, and optional development tools. The release includes
 its MXC executor; a separate MXC installation is unnecessary. Restart editors
 after changing PATH.
 
@@ -61,9 +62,10 @@ Command execution depends on the capabilities the client advertises:
 | Terminal capability | Commands run through the client's terminal API. The client owns containment and process-tree cleanup; Cleetus's local MXC restrictions do not apply to those commands. Cleetus reports this boundary on stderr. |
 
 Client-terminal failures never cause a retry through local execution. Local
-sandbox prerequisites are still checked at ACP startup. A Store or WindowsApps
-PowerShell installation is unsuitable for local MXC; install an unpackaged MSI
-or ZIP alongside it and put that `pwsh.exe` first on PATH.
+sandbox prerequisites are still checked at ACP startup. Store/WindowsApps paths
+are tested rather than rejected by name. An MSI or ZIP installation is a fallback
+if the actual MXC probe fails, or third-party tools need to launch nested `pwsh`
+processes that Windows blocks inside the container.
 
 Windows commands use PowerShell. Application-generated commands preserve argv,
 environment overrides, and the session's absolute working directory. ACP v1 has
