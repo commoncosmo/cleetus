@@ -55,6 +55,11 @@ migration. The doctor reports effective paths and legacy-mode guidance.
 `cleetus --print-user-paths` prints path information as JSON without loading
 providers or starting a sandbox.
 
+Run migration from a regular PowerShell window. Packaged automation hosts can redirect
+AppData reads and writes into their own private package cache while displaying the normal
+path. Verify the result from a PowerShell window outside that host; a path printed inside
+the same host does not prove that the physical user directory was updated.
+
 ```powershell
 cleetus migrate-data          # preview only
 # Close every other Cleetus instance, including editor ACP agents, before applying:

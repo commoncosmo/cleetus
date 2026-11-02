@@ -115,6 +115,21 @@ test("detection with a pre-existing config.yaml continues without overwriting it
   expect(fr.message.toLowerCase()).toContain("session"); // not "wrote <path>"
 });
 
+test("no detection preserves existing config and instructions and does not claim it wrote a starter", async () => {
+  const globalDir = mkdtempSync(join(tmpdir(), "cleetus-existing-config-"));
+  const config = "# existing configuration\nproviders: {}\n";
+  const instructions = "Existing global instructions\n";
+  writeFileSync(join(globalDir, "config.yaml"), config);
+  writeFileSync(join(globalDir, "instructions.md"), instructions);
+  const result = await firstRunSetup(minimalConfig(), globalDir, { detect: async () => [] });
+  expect(result.action).toBe("exit");
+  expect(result.message).toContain("existing config");
+  expect(result.message).toContain("left unchanged");
+  expect(result.message).not.toContain("wrote a starter");
+  expect(readFileSync(join(globalDir, "config.yaml"), "utf8")).toBe(config);
+  expect(readFileSync(join(globalDir, "instructions.md"), "utf8")).toBe(instructions);
+});
+
 test("llama.cpp detection persists the dotted type and localhost port", async () => {
   const globalDir = mkdtempSync(join(tmpdir(), "cleetus-fr4-"));
   const fr = await firstRunSetup(minimalConfig(), globalDir, {

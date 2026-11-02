@@ -154,9 +154,12 @@ export async function firstRunSetup(
     return { action: "continue", config: populated, message };
   }
 
+  const existing = existsSync(join(globalDir, "config.yaml"));
   const path = scaffoldConfig(globalDir);
   return {
     action: "exit",
-    message: `no local LM Studio, Ollama, llama.cpp, or oMLX server found — wrote a starter config at ${path}; add a provider and re-run`,
+    message: existing
+      ? `no local LM Studio, Ollama, llama.cpp, or oMLX server found — existing config at ${path} was left unchanged; configure a provider and re-run`
+      : `no local LM Studio, Ollama, llama.cpp, or oMLX server found — wrote a starter config at ${path}; add a provider and re-run`,
   };
 }
