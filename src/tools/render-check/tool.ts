@@ -1,5 +1,4 @@
 import { resolve } from "node:path";
-import { resolvePowerShell } from "../../sandbox/powershell";
 import type { ExecResult, Sandbox } from "../../sandbox/types";
 import { SandboxUnavailableError } from "../../sandbox/types";
 import type { Tool, ToolContext, ToolResult } from "../types";
@@ -663,27 +662,14 @@ export class RenderCheckTool implements Tool {
 
     if (this.sandbox.shell === "powershell") {
       const bun = Bun.which("bun.exe");
-      let powershell: string | null;
-      try {
-        powershell = await (this.sandbox.shellExecutable?.() ??
-          resolvePowerShell(Bun.which("pwsh.exe")));
-      } catch (error) {
-        return {
-          ok: false,
-          errorCode: "TOOL_FAILED",
-          verificationUnavailable: true,
-          verificationBlocked: true,
-          errorMessage: (error as Error).message,
-        };
-      }
-      if (!bun || !powershell || !this.sandbox.execArgv)
+      if (!bun || !this.sandbox.execArgv)
         return {
           ok: false,
           errorCode: "TOOL_FAILED",
           verificationUnavailable: true,
           verificationBlocked: true,
           errorMessage:
-            "Windows render verification requires Bun and PowerShell 7 on PATH and a sandbox with direct program execution. Install the missing runtime; do not add project browser dependencies.",
+            "Windows render verification requires Bun on PATH and a sandbox with direct program execution. Install the missing runtime; do not add project browser dependencies.",
         };
       try {
         const result = await this.sandbox.execArgv([bun, "run", "-"], {
@@ -696,7 +682,6 @@ export class RenderCheckTool implements Tool {
             expectedText,
             expectedControl,
             expectedAfterText,
-            powershell,
             budgetMs: Math.min(this.cfg.timeoutMs, RENDER_READINESS_BUDGET_MS),
           }),
         });

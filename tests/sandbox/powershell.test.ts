@@ -1,20 +1,50 @@
 import { expect, test } from "bun:test";
 import { looksLikeExecutionDenial, looksLikeWriteDenial } from "../../src/sandbox/boundary";
-import { resolvePowerShell } from "../../src/sandbox/powershell";
+import { findPowerShell, resolvePowerShell } from "../../src/sandbox/powershell";
 import { normalizeWindowsResult, plainPowerShellOutput } from "../../src/sandbox/powershell-output";
 import { powershellArgs } from "../../src/sandbox/shell";
 import { spawnCollect } from "../../src/sandbox/spawn";
 import { powershellHint } from "../../src/tools/powershell-hint";
 
-test("fails early for both WindowsApps aliases and real packaged executables", async () => {
+test("preserves Store aliases and packaged executables for the MXC capability probe", async () => {
   for (const path of [
     "C:/Users/sam/AppData/Local/Microsoft/WindowsApps/Microsoft.PowerShell_8wekyb3d8bbwe/pwsh.exe",
     "C:/Program Files/WindowsApps/Microsoft.PowerShell_7.6.8.0_arm64__8wekyb3d8bbwe/pwsh.exe",
   ])
-    await expect(resolvePowerShell(path)).rejects.toThrow("unpackaged PowerShell");
+    expect(await resolvePowerShell(path)).toBe(path);
+  expect(await resolvePowerShell(null)).toBeNull();
   expect(await resolvePowerShell("C:/Program Files/PowerShell/7/pwsh.exe")).toBe(
     "C:/Program Files/PowerShell/7/pwsh.exe",
   );
+});
+
+test("finds registered Store alias targets in PATH order when Bun cannot stat the alias", async () => {
+  const alias = "C:\\Users\\u\\Microsoft\\WindowsApps\\pwsh.exe";
+  const target = "C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7\\pwsh.exe";
+  const zip = "C:\\Tools\\pwsh.exe";
+  const readLink = (path: string) => {
+    if (path === alias) return target;
+    throw new Error("not a link");
+  };
+  const which = (name: string) => ([target, zip].includes(name) ? name : null);
+  expect(
+    findPowerShell(
+      which,
+      { Path: 'C:\\Users\\u\\Microsoft\\WindowsApps;"C:\\Tools"' },
+      "win32",
+      readLink,
+    ),
+  ).toBe(target);
+  expect(
+    findPowerShell(
+      which,
+      { PATH: "C:\\Tools;C:\\Users\\u\\Microsoft\\WindowsApps" },
+      "win32",
+      readLink,
+    ),
+  ).toBe(zip);
+  expect(await resolvePowerShell(alias, readLink)).toBe(target);
+  expect(findPowerShell(() => null, { PATH: "C:\\missing" }, "win32", readLink)).toBeNull();
 });
 
 test.skipIf(process.platform !== "win32" || !Bun.which("pwsh.exe"))(

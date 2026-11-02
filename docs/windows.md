@@ -106,8 +106,9 @@ installer replaces anything; this prevents older binaries from ignoring the mark
 
 Native Windows execution uses MXC ProcessContainer, via the pinned 1.0.1 standalone
 executor. The Node SDK is a build dependency only: the compiled CLI does not load
-Koffi or require Node/Bun to be installed. An unpackaged PowerShell 7.4 or later
-must be on PATH for native MXC execution.
+Koffi or require Node/Bun to be installed. PowerShell 7.4 or later must be on PATH
+for native MXC execution. Store/MSIX, MSI, and ZIP installations are accepted
+based on an actual sandboxed launch and version probe, rather than their path.
 
 ## Required and recommended tools
 
@@ -119,7 +120,7 @@ See Microsoft's [Windows support matrix](https://github.com/microsoft/mxc/blob/m
 | Component | Needed for | Recommendation |
 |---|---|---|
 | Updated Windows 11 | Native sandboxing | Required; the runtime capability probe is authoritative. |
-| Unpackaged PowerShell 7.4+ (`pwsh.exe`) | Native agent commands | Required by Cleetus's host backend. Select an MSI or ZIP installation. WindowsApps/Store/MSIX PowerShell is rejected during native preflight; Windows PowerShell 5.1 is insufficient. |
+| PowerShell 7.4+ (`pwsh.exe`) | Native agent commands | Required by Cleetus's host backend. Store/MSIX, MSI, and ZIP installations are accepted if the runtime MXC probe passes. Windows PowerShell 5.1 is insufficient as the agent shell. |
 | Configured inference endpoint | Agent responses | Required to use the agent; the server may run locally or remotely. See [providers](providers.md). |
 | Git for Windows (`git.exe`) | Repository tools and checkpoints | Recommended baseline. Native Git is used; Git Bash is not a prerequisite. |
 | Windows Terminal | Interactive TUI | Recommended; enables taskbar/tab progress integration. |
@@ -135,12 +136,32 @@ PowerShell 7 installs alongside Windows PowerShell 5.1. Microsoft recommends
 winget install --id Microsoft.PowerShell --exact --source winget --installer-type wix
 ```
 
-If WinGet has no applicable MSI for the machine's architecture, use an unpackaged
-ZIP installation from the linked PowerShell installation guide. The Store version
-may remain installed alongside it. Put the unpackaged installation first on PATH
-and check `(Get-Command pwsh.exe).Source` in a new terminal. A WindowsApps alias and
-its underlying packaged executable are both unsupported inside native MXC; Cleetus
-does not silently substitute another installation or weaken containment.
+An existing Store installation does not require an additional MSI or ZIP when
+`cleetus doctor --windows` passes. Cleetus probes the selected `pwsh.exe` as MXC's
+initial process using its real command wrapper and checks for PowerShell 7.4+.
+The selected installation is preserved; no other shell or unprotected backend is
+silently substituted. If that probe fails, doctor reports the runtime error. Check
+Windows updates and application-control policy; an MSI or ZIP from the linked
+installation guide remains a fallback. Check `(Get-Command pwsh.exe).Source` in a
+new terminal, or use ACP's `--shell-executable` to select an installation explicitly.
+Store execution aliases are resolved to their registered executable before probing;
+this also handles Bun versions that cannot stat those aliases. PATH order still
+selects the installation, and explicit ACP aliases resolve to the same package.
+
+Store PowerShell can work as MXC's initial process while failing with `EPERM` or
+`EACCES` when a tool already inside MXC tries to spawn it. Cleetus's browser
+verifier avoids this nested launch: it parses the direct dev/preview command into
+literal arguments, starts native executables directly, and uses Windows' built-in
+PowerShell 5.1 only to invoke `.cmd`/`.bat` package-manager shims. It does not run
+agent commands or the PowerShell 7 wrapper in 5.1. The server, supervisor, and
+browser stay in one MXC execution and are stopped on completion or cancellation.
+Third-party tools that independently spawn Store `pwsh.exe` may still require an
+MSI/ZIP installation; this is distinct from Cleetus's shell startup capability.
+Store PowerShell can also cause Windows to rewrite descendants' `TEMP`/`TMP` to
+a nonexistent container-private directory. On the tested host, explicit Bun temp
+and cache paths worked, but `os.tmpdir()` writes failed. Doctor retains its Bun
+temp/cache warning for that workload; an MSI/ZIP shell remains a fallback if the
+project depends on it. Passing shell startup does not suppress project-tool checks.
 
 Install Git from the [Git for Windows installation page](https://git-scm.com/install/windows).
 Open a new terminal after installations so PATH changes are visible. Cleetus does
@@ -474,10 +495,13 @@ but cannot repair a stopped inference server.
 checks, missing-browser diagnostics, and cancellation, including verifying the server
 PID is gone after teardown.
 
-`bun scripts/smoke-windowsapps-powershell.ts <WindowsApps-pwsh.exe>` verifies the
-actual Store installation's host output, reproduces the SDK's root/nested packaged
-launch restriction, and checks Cleetus's early prerequisite/render rejection. The
-ct4 regression used `Microsoft.PowerShell_7.6.8.0_arm64__8wekyb3d8bbwe` on this host.
+`bun scripts/smoke-windowsapps-powershell.ts [WindowsApps-pwsh.exe]` verifies the
+actual Store alias and registered executable through production shell startup and
+doctor, then runs filesystem/secret restrictions, process-tree cancellation, and
+browser verification (npm shim and native Bun launches, interaction, and cleanup).
+It does not alter PATH or install another PowerShell. The original ct4 regression
+used Store 7.6.8; current successful Store coverage uses 7.6.9 on ARM64 build 28000
+with MXC 1.0.1. Other Windows/PowerShell combinations must pass their runtime probe.
 
 `scripts/smoke-windows.ts` compiles a fixture, stages the production executor, and
 checks PowerShell, direct Git, write restrictions, a synthetic secret denial,

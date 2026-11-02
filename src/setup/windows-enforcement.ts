@@ -131,28 +131,30 @@ export async function checkWindowsEnforcement(
       });
     await check("filesystem", "Allowed writes and denied outside writes", async () => {
       const file = join(project, "allowed.txt");
-      const r = await run(
-        `[IO.File]::WriteAllText(${literal(file)}, 'allowed'); try { [IO.File]::WriteAllText(${literal(outside)}, 'escaped'); throw 'write restriction bypassed' } catch [System.UnauthorizedAccessException] { }`,
-      );
+      const r = await run(`[IO.File]::WriteAllText(${literal(file)}, 'allowed')`);
       assert.equal(r.exitCode, 0);
       assert.equal(await readFile(file, "utf8"), "allowed");
+      const denied = await run(`[IO.File]::WriteAllText(${literal(outside)}, 'escaped')`);
+      assert.notEqual(denied.exitCode, 0);
+      assert.match(denied.stderr, /denied|unauthorized|permission/i);
       assert.equal(await readFile(outside, "utf8"), "unchanged");
     });
     await check("secret-read", "Denied secret reads", async () => {
-      const r = await run(
-        `try { [IO.File]::ReadAllText(${literal(secret)}); throw 'read restriction bypassed' } catch [System.UnauthorizedAccessException] { }`,
-      );
-      assert.equal(r.exitCode, 0);
+      const r = await run(`[IO.File]::ReadAllText(${literal(secret)})`);
+      assert.notEqual(r.exitCode, 0);
+      assert.match(r.stderr, /denied|unauthorized|permission/i);
+      assert.doesNotMatch(r.stdout, /synthetic secret/);
     });
     await check("metadata", "Project metadata read-only", async () => {
       for (const name of [".git", ".cleetus"]) {
         const path = join(project, name, "sentinel");
         await writeFile(path, "unchanged");
-        const r = await run(
-          `if ([IO.File]::ReadAllText(${literal(path)}) -ne 'unchanged') { throw 'metadata unreadable' }; try { [IO.File]::WriteAllText(${literal(path)}, 'escaped'); throw 'metadata restriction bypassed' } catch [System.UnauthorizedAccessException] { }`,
-          true,
-        );
+        const r = await run(`[IO.File]::ReadAllText(${literal(path)})`, true);
         assert.equal(r.exitCode, 0);
+        assert.equal(r.stdout.trim(), "unchanged");
+        const denied = await run(`[IO.File]::WriteAllText(${literal(path)}, 'escaped')`, true);
+        assert.notEqual(denied.exitCode, 0);
+        assert.match(denied.stderr, /denied|unauthorized|permission/i);
         assert.equal(await readFile(path, "utf8"), "unchanged");
       }
     });
@@ -164,7 +166,7 @@ if ($depth -lt 2) {
   $start.FileName=$env:CLEETUS_DOCTOR_PWSH;
   $start.Arguments='-NoLogo -NoProfile -NonInteractive -EncodedCommand '+$env:CLEETUS_DOCTOR_WORKER;
   $start.UseShellExecute=$false; $start.CreateNoWindow=$true;
-  $start.Environment['CLEETUS_DOCTOR_DEPTH']=[string]($depth+1);
+  $start.EnvironmentVariables['CLEETUS_DOCTOR_DEPTH']=[string]($depth+1);
   $child=[Diagnostics.Process]::Start($start);
 }
 Start-Sleep 30`;
@@ -176,7 +178,12 @@ Start-Sleep 30`;
           CLEETUS_DOCTOR_WORKER: Buffer.from(worker, "utf16le").toString("base64"),
           CLEETUS_DOCTOR_DEPTH: "0",
           CLEETUS_DOCTOR_PROJECT: project,
-          CLEETUS_DOCTOR_PWSH: powershell,
+          // Probe process-tree containment, not nested activation of Store pwsh.
+          // The 5.1-compatible worker needs only Windows' built-in executable.
+          CLEETUS_DOCTOR_PWSH: join(
+            process.env.SystemRoot!,
+            "System32/WindowsPowerShell/v1.0/powershell.exe",
+          ),
         },
       });
       void pending.catch(() => {});

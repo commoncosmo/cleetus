@@ -4,6 +4,7 @@ import { Command } from "commander";
 import { resolveConfigRoot } from "../../config/config-root";
 import { loadConfig } from "../../config/loader";
 import { userPaths } from "../../config/user-paths";
+import { findPowerShell } from "../../sandbox/powershell";
 import { WindowsSandbox, windowsExecutorPath } from "../../sandbox/windows";
 import { providerEnvironmentChecks } from "../../setup/provider-environment";
 import { checkWindowsEnforcement } from "../../setup/windows-enforcement";
@@ -72,7 +73,7 @@ export async function runDoctor(
     }
     if (!opts.quick && environmentExitCode(report) === 0) {
       try {
-        report.checks.push(...(await checkWindowsEnforcement(executor, Bun.which("pwsh.exe")!)));
+        report.checks.push(...(await checkWindowsEnforcement(executor, findPowerShell()!)));
       } catch {
         report.checks.push({
           id: "enforcement",

@@ -79,6 +79,33 @@ it("surfaces native capability failures without silently falling back", async ()
     "ProcessContainer unavailable",
   );
 });
+it("probes the selected Store shell and reports the actual result", async () => {
+  for (const shell of [
+    "C:/Users/u/AppData/Local/Microsoft/WindowsApps/pwsh.exe",
+    "C:/Program Files/WindowsApps/Microsoft.PowerShell_7.6.9.0_arm64__8wekyb3d8bbwe/pwsh.exe",
+  ]) {
+    for (const failure of [null, "CreateProcessW failed: 5"]) {
+      const probed: string[] = [];
+      const report = await checkWindowsPrerequisites(
+        ".",
+        "host",
+        deps({
+          which: (name) => (name === "pwsh.exe" ? shell : null),
+          health: async (_cwd, _executor, selected) => {
+            probed.push(selected);
+            return failure;
+          },
+        }),
+      );
+      expect(probed).toEqual([shell]);
+      expect(environmentExitCode(report)).toBe(failure ? 1 : 0);
+      expect(report.checks.find((c) => c.id === "mxc-runtime")?.detail).toContain(
+        failure ?? "PowerShell 7.4+ are available",
+      );
+      expect(report.checks.some((c) => c.id === "powershell-packaging")).toBe(false);
+    }
+  }
+});
 it("does not require native MXC or PowerShell for Docker", async () => {
   const report = await checkWindowsPrerequisites(
     ".",
