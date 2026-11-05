@@ -79,8 +79,15 @@ import { buildFormatter } from "../format/manager";
 import { runGit } from "../git/run";
 import { buildHookEngine } from "../hooks";
 import { LearnPlaybookService } from "../learn/service";
-import { openDatabase } from "../lib/db";
+import { openDatabaseBatch } from "../lib/db";
 import { CleetusError } from "../lib/errors";
+import {
+  enableStartupTimings,
+  startupAsync,
+  startupReady,
+  startupSync,
+  startupTiming,
+} from "../lib/startup-timings";
 import { McpManager, createStdioConnection } from "../mcp";
 import type { NamedServerConfig } from "../mcp/types";
 import { loadMemories } from "../memory/load";
@@ -111,7 +118,6 @@ import { truncateMapToBudget } from "../repomap/render";
 import { unconfinedSandboxNotice } from "../sandbox/boundary";
 import { createSandboxWithInfo, sandboxStatus } from "../sandbox/factory";
 import { spawnCollect } from "../sandbox/spawn";
-import { privateDirectory, privateFile } from "../security/private-state";
 import { isSecretPath } from "../security/secret-paths";
 import { firstRunSetup } from "../setup/first-run";
 import { windowsFirstRunPrerequisites } from "../setup/windows-environment";
@@ -212,6 +218,7 @@ interface ProgramOptions {
   effort?: string;
   personality?: string;
   verbose?: boolean;
+  startupTimings?: boolean;
   hooks?: boolean; // commander sets false when --no-hooks is passed; default true
   image?: string[];
 }
@@ -336,6 +343,7 @@ async function main(argv: string[]): Promise<number> {
     .option("--effort <level>", "reasoning effort: low | medium | high")
     .option("--personality <id>", "voice overlay: neutral | cleetus | bofh")
     .option("--verbose", "show warning and internal diagnostic notices")
+    .option("--startup-timings", "report startup phase timings to stderr")
     .option("--resume [id]", "resume a session (no id opens a picker)")
     .option(
       "--session-id <id>",
@@ -370,6 +378,8 @@ async function main(argv: string[]): Promise<number> {
 
   program.parse(argv);
   const opts = program.opts<ProgramOptions>();
+  enableStartupTimings(opts.startupTimings ?? false);
+  const configurationStart = performance.now();
   if (opts.printUserPaths) {
     const paths = userPaths();
     console.log(
@@ -426,6 +436,7 @@ async function main(argv: string[]): Promise<number> {
       ? preConfig
       : await loadConfig({ globalPath: GLOBAL_CONFIG, projectDir, trustGlobalWorkspace });
 
+  startupTiming("configuration", configurationStart);
   // First run (no provider configured): auto-detect a local server and continue, or scaffold and exit.
   if (Object.keys(config.providers).length === 0) {
     if (
@@ -467,15 +478,38 @@ async function main(argv: string[]): Promise<number> {
 
   // --list-models: print the cross-provider catalog and exit, no side effects.
   if (opts.listModels) {
-    const catalog = await fetchCatalog(providers);
+    const catalog = await startupAsync("provider discovery", () => fetchCatalog(providers));
+    startupReady();
     process.stdout.write(`${renderCatalog(catalog, { json: opts.json ?? false })}\n`);
     return 0;
   }
 
-  privateDirectory(join(projectDir, ".cleetus"));
-  privateDirectory(GLOBAL_DIR, { excludeChildren: ["workspace"] });
-  privateFile(GLOBAL_CONFIG);
-  privateFile(join(projectDir, ".cleetus", "config.yaml"));
+  const sessionsDbPath = resolveSessionDbPath(projectDir, opts.sessionDb);
+  const mirrorPath = projectAuditDbPath(GLOBAL_DIR, projectDir);
+  const startupDatabases = startupSync("private state and database opens", () =>
+    openDatabaseBatch(
+      {
+        sessions: sessionsDbPath,
+        mirror: mirrorPath,
+        projectVectors: join(projectDir, ".cleetus", "vectors.db"),
+        globalVectors: join(GLOBAL_DIR, "vectors.db"),
+        manifest: join(projectDir, ".cleetus", "code-index.db"),
+      },
+      [
+        { path: join(projectDir, ".cleetus"), action: "directory" },
+        { path: GLOBAL_DIR, action: "directory", excludeChildren: ["workspace"] },
+        { path: GLOBAL_CONFIG, action: "file" },
+        { path: join(projectDir, ".cleetus", "config.yaml"), action: "file" },
+      ],
+      {
+        key: "mirror",
+        onError: (error) =>
+          console.error(
+            `[cleetus] recovery event log unavailable; continuing with the project log: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+      },
+    ),
+  );
 
   const memoryStores = {
     global: new MemoryStore(GLOBAL_MEMORY),
@@ -500,9 +534,14 @@ async function main(argv: string[]): Promise<number> {
   const vectorService = new VectorService({
     projectDbPath: join(projectDir, ".cleetus", "vectors.db"),
     globalDbPath: join(GLOBAL_DIR, "vectors.db"),
+    projectDatabase: startupDatabases.projectVectors,
+    globalDatabase: startupDatabases.globalVectors,
     embedder,
   });
-  const codeManifest = new Manifest(join(projectDir, ".cleetus", "code-index.db"));
+  const codeManifest = new Manifest(
+    join(projectDir, ".cleetus", "code-index.db"),
+    startupDatabases.manifest,
+  );
   const indexer = new Indexer({
     projectDir,
     vectorService,
@@ -516,12 +555,13 @@ async function main(argv: string[]): Promise<number> {
     trustGlobalWorkspace,
   });
 
-  const sessionsDbPath = resolveSessionDbPath(projectDir, opts.sessionDb);
   ensureParentDir(sessionsDbPath);
   const log = new EventLog(sessionsDbPath, {
-    mirrorPath: projectAuditDbPath(GLOBAL_DIR, projectDir),
+    mirrorPath,
+    database: startupDatabases.sessions,
+    mirrorDatabase: startupDatabases.mirror ?? null,
   });
-  const db = openDatabase(sessionsDbPath);
+  const db = startupDatabases.sessions;
   const sessions = new SessionStore(db);
   const historyStore = new SessionHistoryStore(db);
   maybeGcOnStartup(config.attachments, join(projectDir, ".cleetus", "attachments"), db, (line) =>
@@ -542,7 +582,10 @@ async function main(argv: string[]): Promise<number> {
   // Resolve the startup (provider, model) across all providers. A configured or
   // flagged model that resolves skips the picker entirely; anything unresolved is
   // handled per-mode below (modal in the TUI, error/first-model in one-shot).
-  const [catalog] = await Promise.all([fetchCatalog(providers), mcp.connectAll()]);
+  const [catalog] = await Promise.all([
+    startupAsync("provider discovery", () => fetchCatalog(providers)),
+    startupAsync("MCP connections", () => mcp.connectAll()),
+  ]);
   for (const entry of catalog) {
     if (entry.error)
       console.error(`[cleetus] WARNING: provider '${entry.provider}' unavailable: ${entry.error}`);
@@ -567,7 +610,10 @@ async function main(argv: string[]): Promise<number> {
     sandbox,
     degraded: sandboxDegraded,
     backend: sandboxBackend,
-  } = await createSandboxWithInfo(config.sandbox, projectDir);
+  } = await startupAsync("sandbox preflight", () =>
+    createSandboxWithInfo(config.sandbox, projectDir),
+  );
+  const servicesStart = performance.now();
   let requestWorkflowAuthorization: RequestWorkflowAuthorization = async () => "deny";
   let collectWorkflowInputs: (request: {
     workflow: string;
@@ -1016,6 +1062,8 @@ async function main(argv: string[]): Promise<number> {
       if (gate.action === "warn") console.error(`[cleetus] WARNING: ${gate.message}`);
     }
 
+    startupTiming("services and command setup", servicesStart);
+    startupReady();
     const code = await runOneShot({
       runtime,
       log,
@@ -2213,6 +2261,8 @@ async function main(argv: string[]): Promise<number> {
   });
   // A crash or signal must not leave the last frame sitting in the buffer.
   process.once("exit", frameWriter.flush);
+  startupTiming("services and UI setup", servicesStart);
+  startupReady();
   const { waitUntilExit, unmount } = render(
     React.createElement(
       ThemeProvider,

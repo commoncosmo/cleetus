@@ -9,7 +9,66 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { windowsPrivateState } from "./windows-private-state";
+import { windowsPrivateState, windowsPrivateStates } from "./windows-private-state";
+
+export interface PrivateStateOperation {
+  path: string;
+  action: "directory" | "file" | "database";
+  excludeChildren?: readonly string[];
+}
+
+/** Validate every target before applying a batch. There is no path/ACL cache:
+ * later opens and writes still validate and protect their current targets. */
+export function validatePrivateStateTargets(
+  operations: readonly PrivateStateOperation[],
+  mustExist = false,
+): void {
+  for (const operation of operations) {
+    const excluded = operation.excludeChildren ?? [];
+    if (excluded.some((name) => !name || name === "." || name === ".." || /[\\/]/.test(name)))
+      throw new Error("Private directory exclusions must be direct child names");
+    for (const suffix of operation.action === "database" ? ["", "-wal", "-shm"] : [""]) {
+      validateWindowsTarget(operation.path + suffix, excluded);
+      if (mustExist) {
+        const info = lstatSync(operation.path + suffix);
+        if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1)
+          throw new Error(
+            `prepared database is not a regular unlinked file: ${operation.path + suffix}`,
+          );
+      }
+    }
+  }
+}
+
+export function preparePrivateState(operations: readonly PrivateStateOperation[]): void {
+  if (process.platform === "win32") {
+    validatePrivateStateTargets(operations);
+    const requests = operations.filter((op) => {
+      if (op.action !== "file") return true;
+      try {
+        lstatSync(op.path);
+        return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+        throw error;
+      }
+    });
+    for (const op of requests)
+      if (op.action === "database") mkdirSync(dirname(op.path), { recursive: true });
+    windowsPrivateStates(requests);
+    return;
+  }
+  for (const op of operations) {
+    if (op.action === "directory")
+      privateDirectory(op.path, { excludeChildren: op.excludeChildren });
+    else if (op.action === "file") privateFile(op.path);
+    else {
+      mkdirSync(dirname(op.path), { recursive: true });
+      createPrivateDatabase(op.path);
+      for (const suffix of ["-wal", "-shm"]) privateFile(op.path + suffix);
+    }
+  }
+}
 
 function validateTree(path: string, excludeChildren: readonly string[] = [], descend = true): void {
   const info = lstatSync(path);

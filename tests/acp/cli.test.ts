@@ -3,6 +3,11 @@ import { parseAcpOptions } from "../../src/acp/cli";
 
 const base = ["/bin/bun", "/path/cleetus", "acp"];
 
+test("startup timing diagnostics are opt-in in ACP", () => {
+  expect(parseAcpOptions(base).startupTimings).toBeUndefined();
+  expect(parseAcpOptions([...base, "--startup-timings"]).startupTimings).toBe(true);
+});
+
 test("parses an explicit shell executable without splitting spaces", () => {
   const path = "C:\\Tools\\PowerShell 7\\pwsh.exe";
   expect(parseAcpOptions([...base, "--shell-executable", path]).shellExecutable).toBe(path);
