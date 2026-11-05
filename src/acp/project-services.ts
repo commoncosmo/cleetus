@@ -15,6 +15,8 @@ import { buildFormatter } from "../format/manager";
 import type { Formatter } from "../format/types";
 import { buildHookEngine } from "../hooks";
 import type { HookEngine } from "../hooks/types";
+import { openDatabaseBatch } from "../lib/db";
+import { startupSync } from "../lib/startup-timings";
 import type { ProviderRegistry } from "../providers/registry";
 import { buildRepoMap } from "../repomap/build";
 import { execProgram } from "../sandbox/program";
@@ -152,12 +154,21 @@ export class AcpProjectServiceRegistry {
         );
       }
     }
+    const databases = startupSync("ACP project database opens", () =>
+      openDatabaseBatch({
+        projectVectors: join(cwd, ".cleetus", "vectors.db"),
+        globalVectors: join(this.deps.globalDir, "vectors.db"),
+        manifest: join(cwd, ".cleetus", "code-index.db"),
+      }),
+    );
     const vectors = new VectorService({
       projectDbPath: join(cwd, ".cleetus", "vectors.db"),
       globalDbPath: join(this.deps.globalDir, "vectors.db"),
       embedder,
+      projectDatabase: databases.projectVectors,
+      globalDatabase: databases.globalVectors,
     });
-    const manifest = new Manifest(join(cwd, ".cleetus", "code-index.db"));
+    const manifest = new Manifest(join(cwd, ".cleetus", "code-index.db"), databases.manifest);
     const indexer = new Indexer({
       projectDir: cwd,
       vectorService: vectors,

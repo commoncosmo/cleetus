@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import { CleetusError } from "../lib/errors";
 import type { Embedder } from "./embedder";
 import { VectorStore } from "./store";
@@ -6,6 +7,8 @@ import type { NamespaceStats, Scope, VectorHit, VectorRecord } from "./types";
 export interface VectorServiceOptions {
   projectDbPath: string;
   globalDbPath: string;
+  projectDatabase?: Database;
+  globalDatabase?: Database;
   /** null when no `embeddings` config is present — service reports `enabled === false`. */
   embedder: Embedder | null;
 }
@@ -16,8 +19,8 @@ export class VectorService {
   private readonly embedder: Embedder | null;
 
   constructor(opts: VectorServiceOptions) {
-    this.project = new VectorStore(opts.projectDbPath);
-    this.global = new VectorStore(opts.globalDbPath);
+    this.project = new VectorStore(opts.projectDbPath, opts.projectDatabase);
+    this.global = new VectorStore(opts.globalDbPath, opts.globalDatabase);
     this.embedder = opts.embedder;
   }
 

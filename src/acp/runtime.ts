@@ -41,7 +41,14 @@ import { EventLog } from "../events/log";
 import type { EvidenceRegistry } from "../evidence";
 import { runGit } from "../git/run";
 import { type LearnPlaybookController, LearnPlaybookService } from "../learn/service";
-import { openDatabase } from "../lib/db";
+import { openDatabaseBatch } from "../lib/db";
+import {
+  enableStartupTimings,
+  startupAsync,
+  startupReady,
+  startupSync,
+  startupTiming,
+} from "../lib/startup-timings";
 import type { McpServerStatus } from "../mcp/types";
 import { loadMemories } from "../memory/load";
 import { MemoryStore } from "../memory/store";
@@ -57,7 +64,6 @@ import { createSandboxWithInfo } from "../sandbox/factory";
 import { findPowerShell, resolvePowerShell } from "../sandbox/powershell";
 import { execProgram } from "../sandbox/program";
 import type { Sandbox } from "../sandbox/types";
-import { privateDirectory, privateFile } from "../security/private-state";
 import {
   checkWindowsPrerequisites,
   windowsFirstRunPrerequisites,
@@ -96,6 +102,7 @@ import { registerAcpTools } from "./toolset";
 import type { WorkflowAuthorizationRouter } from "./workflow-permission";
 
 export interface AcpRuntimeOptions {
+  startupTimings?: boolean;
   shellExecutable?: string;
   provider?: string;
   model?: string;
@@ -248,6 +255,8 @@ export interface AcpRuntimeBundle {
  *  deliberately deferred and are tracked in the project todo list. */
 export async function buildAcpRuntime(options: AcpRuntimeOptions): Promise<AcpRuntimeBundle> {
   const opts = { ...options };
+  enableStartupTimings(opts.startupTimings ?? false);
+  const configurationStart = performance.now();
   if (opts.shellExecutable !== undefined) {
     if (process.platform !== "win32")
       throw new Error("--shell-executable currently supports Windows PowerShell only");
@@ -340,13 +349,14 @@ export async function buildAcpRuntime(options: AcpRuntimeOptions): Promise<AcpRu
     );
   }
 
+  startupTiming("ACP configuration", configurationStart);
   const providers = new ProviderRegistry();
   for (const [name, p] of Object.entries(config.providers)) {
     providers.register(name, buildProvider(p.type, p.baseUrl, p.apiKey, p));
   }
   const modelContext = new ModelContextCache(providers);
 
-  const catalog = await fetchCatalog(providers);
+  const catalog = await startupAsync("ACP provider discovery", () => fetchCatalog(providers));
   const startup = resolveStartupChoice(catalog, {
     requestedProvider: opts.provider,
     requestedModel: opts.model,
@@ -369,30 +379,48 @@ export async function buildAcpRuntime(options: AcpRuntimeOptions): Promise<AcpRu
     model = first.model;
   }
 
-  privateDirectory(join(projectDir, ".cleetus"));
-  privateDirectory(join(opts.projectHome ?? projectDir, ".cleetus"));
-  privateDirectory(globalDir, { excludeChildren: ["workspace"] });
-  privateFile(GLOBAL_CONFIG);
-  privateFile(join(projectDir, ".cleetus", "config.yaml"));
   const sessionsDbPath = resolveSessionDbPath(projectDir, opts.sessionDb);
+  const mirrorPath = projectAuditDbPath(globalDir, projectDir);
+  const startupDatabases = startupSync("ACP private state and database opens", () =>
+    openDatabaseBatch(
+      { sessions: sessionsDbPath, mirror: mirrorPath },
+      [
+        { path: join(projectDir, ".cleetus"), action: "directory" },
+        { path: join(opts.projectHome ?? projectDir, ".cleetus"), action: "directory" },
+        { path: globalDir, action: "directory", excludeChildren: ["workspace"] },
+        { path: GLOBAL_CONFIG, action: "file" },
+        { path: join(projectDir, ".cleetus", "config.yaml"), action: "file" },
+      ],
+      {
+        key: "mirror",
+        onError: (error) =>
+          console.error(
+            `[cleetus] recovery event log unavailable; continuing with the project log: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+      },
+    ),
+  );
   ensureParentDir(sessionsDbPath);
   const log = new EventLog(sessionsDbPath, {
-    mirrorPath: projectAuditDbPath(globalDir, projectDir),
+    mirrorPath,
+    database: startupDatabases.sessions,
+    mirrorDatabase: startupDatabases.mirror ?? null,
   });
-  // Second handle on the same sqlite file (EventLog owns its own). Mirrors cleetus.ts: the
-  // EventLog and SessionHistoryStore each hold their own connection to sessions.db.
-  const db = openDatabase(sessionsDbPath);
+  // The runtime owns this handle; EventLog borrows it and owns only its mirror.
+  const db = startupDatabases.sessions;
   const historyStore = new SessionHistoryStore(db);
   maybeGcOnStartup(config.attachments, join(projectDir, ".cleetus", "attachments"), db, (line) =>
     process.stderr.write(`${line}\n`),
   );
 
-  const { sandbox: realSandbox, degraded: sandboxDegraded } = await createSandboxWithInfo(
-    config.sandbox,
-    projectDir,
-    undefined,
-    { shellExecutable: opts.shellExecutable },
+  const { sandbox: realSandbox, degraded: sandboxDegraded } = await startupAsync(
+    "ACP sandbox preflight",
+    () =>
+      createSandboxWithInfo(config.sandbox, projectDir, undefined, {
+        shellExecutable: opts.shellExecutable,
+      }),
   );
+  const servicesStart = performance.now();
   const projectSandboxes = new AcpSandboxRegistry(async (cwd) => {
     const selection = await createSandboxWithInfo(config.sandbox, cwd, undefined, {
       shellExecutable: opts.shellExecutable,
@@ -515,11 +543,13 @@ export async function buildAcpRuntime(options: AcpRuntimeOptions): Promise<AcpRu
     requestAuthorization: (request) => workflowAuthorizationRouter.current(request),
   });
   tools.register(new RunWorkflowTool(workflowRuntime.service));
-  const configuredMcp = await connectConfiguredAcpMcp({
-    servers: config.mcpServers,
-    tools,
-    log,
-  });
+  const configuredMcp = await startupAsync("ACP MCP connections", () =>
+    connectConfiguredAcpMcp({
+      servers: config.mcpServers,
+      tools,
+      log,
+    }),
+  );
   const dispatcher = new ToolDispatcher(tools);
 
   // Persona, personality (voice overlay), and effort mirror the full runtime's startup resolution
@@ -924,6 +954,8 @@ export async function buildAcpRuntime(options: AcpRuntimeOptions): Promise<AcpRu
     db.close();
   };
 
+  startupTiming("ACP services setup", servicesStart);
+  startupReady();
   return {
     runtime,
     log,

@@ -17,9 +17,9 @@ interface VectorRow {
 export class VectorStore {
   private db: Database;
 
-  constructor(dbPath: string) {
+  constructor(dbPath: string, database?: Database) {
     if (dbPath !== ":memory:") mkdirSync(dirname(dbPath), { recursive: true });
-    this.db = openDatabase(dbPath, { create: true });
+    this.db = database ?? openDatabase(dbPath, { create: true });
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS vectors (
         namespace TEXT NOT NULL,

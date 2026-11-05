@@ -47,6 +47,11 @@ Docker shell selection is separate. Omitting it preserves PATH-based selection.
 
 ## Windows prerequisites and execution boundaries
 
+Add `--startup-timings` to the ACP arguments to diagnose slow initialization.
+Timings go to stderr and preserve protocol stdout. See
+[Windows startup diagnostics](windows.md#diagnosing-slow-startup) for phases and
+the equivalent `CLEETUS_STARTUP_TIMINGS=1` environment setting.
+
 Use the complete Windows distribution, including the shipped
 `native/wxc-exec.exe`. Run `cleetus doctor` from a terminal before configuring
 the editor. See [Windows setup](windows.md) for the supported Windows version,

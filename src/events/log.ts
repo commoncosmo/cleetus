@@ -13,6 +13,7 @@ export interface EventSource {
 
 export class EventLog {
   private db: Database;
+  private readonly ownsDb: boolean;
   private mirrorDb?: Database;
   private listeners: Map<string, Set<EventListener>> = new Map();
   /** Set once a write fails; suppresses the per-event error flood until a write succeeds again.
@@ -24,14 +25,23 @@ export class EventLog {
   /** Mirrors `writeFailing` for the external recovery database. */
   private mirrorWriteFailing = false;
 
-  constructor(dbPath: string, opts?: { mirrorPath?: string }) {
+  constructor(
+    dbPath: string,
+    opts?: { mirrorPath?: string; database?: Database; mirrorDatabase?: Database | null },
+  ) {
     if (dbPath !== ":memory:") mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
-    this.db = openDatabase(dbPath, { create: true });
+    this.ownsDb = !opts?.database;
+    this.db = opts?.database ?? openDatabase(dbPath, { create: true });
     this.initialize(this.db);
-    if (opts?.mirrorPath && opts.mirrorPath !== dbPath && dbPath !== ":memory:") {
+    if (
+      opts?.mirrorPath &&
+      opts.mirrorPath !== dbPath &&
+      dbPath !== ":memory:" &&
+      opts.mirrorDatabase !== null
+    ) {
       try {
         mkdirSync(dirname(opts.mirrorPath), { recursive: true, mode: 0o700 });
-        this.mirrorDb = openDatabase(opts.mirrorPath, { create: true });
+        this.mirrorDb = opts.mirrorDatabase ?? openDatabase(opts.mirrorPath, { create: true });
         this.initialize(this.mirrorDb);
       } catch (e) {
         this.mirrorDb?.close();
@@ -40,6 +50,8 @@ export class EventLog {
           `[cleetus] recovery event log unavailable; continuing with the project log: ${(e as Error).message}`,
         );
       }
+    } else if (opts?.mirrorDatabase && opts.mirrorDatabase !== this.db) {
+      opts.mirrorDatabase.close();
     }
   }
 
@@ -153,7 +165,7 @@ export class EventLog {
   }
 
   close(): void {
-    this.db.close();
+    if (this.ownsDb) this.db.close();
     this.mirrorDb?.close();
   }
 }

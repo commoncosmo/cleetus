@@ -11,10 +11,19 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve, sep } from "node:path";
+import { Manifest } from "../../src/codeindex/manifest";
 import { migrateWindowsData } from "../../src/config/migrate-data";
-import { openDatabase } from "../../src/lib/db";
+import { EventLog } from "../../src/events/log";
+import { openDatabase, openDatabaseBatch } from "../../src/lib/db";
 import { MemoryStore } from "../../src/memory/store";
-import { privateDirectory, privateFile, writePrivateFile } from "../../src/security/private-state";
+import {
+  preparePrivateState,
+  privateDirectory,
+  privateFile,
+  writePrivateFile,
+} from "../../src/security/private-state";
+import { windowsPrivateStates } from "../../src/security/windows-private-state";
+import { VectorService } from "../../src/vector/service";
 
 const windows = test.skipIf(process.platform !== "win32");
 const base = resolve("dist/windows-private-tests");
@@ -119,6 +128,79 @@ windows(
 );
 
 windows(
+  "batched startup protects every database and sidecar; later opens repair changed ACLs",
+  () => {
+    const root = fixture();
+    const state = join(root, "state");
+    const paths = { sessions: join(state, "sessions.db"), vectors: join(state, "vectors.db") };
+    const dbs = openDatabaseBatch(paths, [{ path: state, action: "directory" }]);
+    try {
+      for (const [name, db] of Object.entries(dbs)) {
+        db.exec("CREATE TABLE sample(value TEXT);INSERT INTO sample VALUES ('private')");
+        const path = paths[name as keyof typeof paths];
+        expectPrivate(path, `${path}-wal`, `${path}-shm`);
+      }
+      // No process-lifetime cache may hide a subsequent ACL change.
+      broaden(paths.sessions, `${paths.sessions}-wal`);
+      const reopened = openDatabase(paths.sessions);
+      reopened.close();
+      expectPrivate(paths.sessions, `${paths.sessions}-wal`, `${paths.sessions}-shm`);
+    } finally {
+      for (const db of Object.values(dbs)) db.close();
+    }
+  },
+  60000,
+);
+
+windows(
+  "a warm batch verifies without rewriting correct ACLs, and repairs later tampering",
+  () => {
+    const root = fixture();
+    const state = join(root, "state");
+    const path = join(state, "data.yaml");
+    mkdirSync(state);
+    writeFileSync(path, "keep");
+    broaden(state, path);
+    preparePrivateState([
+      { path: state, action: "directory" },
+      { path, action: "file" },
+    ]);
+    const result = windowsPrivateStates([
+      { path: state, action: "directory" },
+      { path, action: "file" },
+    ]);
+    expect(result.inspected).toBe(2);
+    expect(result.repaired).toBe(0);
+    broaden(path);
+    const repaired = windowsPrivateStates([{ path: state, action: "directory" }]);
+    expect(repaired.repaired).toBe(1);
+    expectPrivate(path);
+    expect(readFileSync(path, "utf8")).toBe("keep");
+  },
+  60000,
+);
+
+windows(
+  "a bad batch target prevents all application writes and leaves linked targets intact",
+  () => {
+    const root = fixture();
+    const target = join(root, "target");
+    mkdirSync(target);
+    const file = join(target, "existing");
+    writeFileSync(file, "keep");
+    const before = acl(file);
+    const link = join(root, "linked");
+    symlinkSync(target, link, "junction");
+    const newDb = join(root, "must-not-create.db");
+    expect(() => openDatabaseBatch({ first: newDb, second: join(link, "bad.db") })).toThrow(
+      /linked/,
+    );
+    expect(existsSync(newDb)).toBe(false);
+    expect(acl(file)).toEqual(before);
+  },
+);
+
+windows(
   "SQLite sidecars stay private in a permissive parent across concurrent handles and reopen",
   () => {
     const root = fixture();
@@ -145,6 +227,53 @@ windows(
       expectPrivate(path, `${path}-wal`, `${path}-shm`);
     } finally {
       reopened.close();
+    }
+  },
+  60000,
+);
+
+windows(
+  "startup services consume prepared handles without another helper and preserve database ownership",
+  () => {
+    const root = fixture();
+    const paths = {
+      sessions: join(root, "sessions.db"),
+      mirror: join(root, "mirror.db"),
+      project: join(root, "vectors.db"),
+      global: join(root, "global-vectors.db"),
+      manifest: join(root, "code-index.db"),
+    };
+    const dbs = openDatabaseBatch(paths);
+    const saved = process.env.SystemRoot;
+    process.env.SystemRoot = join(root, "missing-system");
+    try {
+      const log = new EventLog(paths.sessions, {
+        database: dbs.sessions,
+        mirrorPath: paths.mirror,
+        mirrorDatabase: dbs.mirror,
+      });
+      const vectors = new VectorService({
+        projectDbPath: paths.project,
+        globalDbPath: paths.global,
+        projectDatabase: dbs.project,
+        globalDatabase: dbs.global,
+        embedder: null,
+      });
+      const manifest = new Manifest(paths.manifest, dbs.manifest);
+      log.append({ sessionId: "startup", type: "user_input", payload: { text: "private" } });
+      expect(log.query("startup").length).toBe(1);
+      vectors.close();
+      manifest.close();
+      log.close();
+      expect(dbs.sessions.query("SELECT count(*) AS n FROM events").get()).toEqual({ n: 1 });
+      dbs.sessions.close();
+    } finally {
+      process.env.SystemRoot = saved;
+      for (const db of Object.values(dbs)) {
+        try {
+          db.close();
+        } catch {}
+      }
     }
   },
   60000,

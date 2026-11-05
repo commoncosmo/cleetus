@@ -21,6 +21,7 @@ export interface AcpCliOptions {
   inheritProjectMemory?: boolean;
   fuckit?: boolean;
   verbose?: boolean;
+  startupTimings?: boolean;
   shellExecutable?: string;
 }
 
@@ -66,6 +67,7 @@ export function parseAcpOptions(argv: string[]): AcpCliOptions {
     .option("--no-project-memory", "do not inherit the project's memory in this session")
     .option("--fuckit", "disable ordinary tool permission prompts (DANGEROUS)")
     .option("--verbose", "show warning and internal diagnostic notices")
+    .option("--startup-timings", "report startup phase timings to stderr")
     .allowExcessArguments()
     .allowUnknownOption();
   acp.parse([...argv.slice(0, 2), ...argv.slice(3)]); // keep [exec, exec], drop the "acp" token
@@ -90,6 +92,7 @@ export function parseAcpOptions(argv: string[]): AcpCliOptions {
     projectMemory?: boolean;
     fuckit?: boolean;
     verbose?: boolean;
+    startupTimings?: boolean;
     shellExecutable?: string;
   }>();
   return {
@@ -113,6 +116,7 @@ export function parseAcpOptions(argv: string[]): AcpCliOptions {
     inheritProjectMemory: o.projectMemory ?? true,
     fuckit: o.fuckit,
     verbose: o.verbose,
+    startupTimings: o.startupTimings,
     shellExecutable: o.shellExecutable,
   };
 }

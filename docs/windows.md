@@ -110,6 +110,30 @@ Koffi or require Node/Bun to be installed. PowerShell 7.4 or later must be on PA
 for native MXC execution. Store/MSIX, MSI, and ZIP installations are accepted
 based on an actual sandboxed launch and version probe, rather than their path.
 
+## Diagnosing slow startup
+
+Run `cleetus --startup-timings` to print phase timings to stderr. ACP accepts the
+same option: `cleetus acp --startup-timings`. Alternatively set
+`$env:CLEETUS_STARTUP_TIMINGS = '1'` before launching, then remove it with
+`Remove-Item Env:CLEETUS_STARTUP_TIMINGS` when finished.
+
+The trace reports configuration, private state/database setup, provider discovery,
+MCP connections, sandbox preflight, service setup, and total time to the UI or
+first command. Windows ACL summaries include operation, inspection, and repair
+counts. Diagnostics do not include configuration contents, credentials, or paths;
+ACP stdout remains a JSON-RPC stream.
+
+Windows startup protects its known state targets in one helper invocation before
+opening SQLite handles. Existing ACLs are checked and rewritten only when repair
+is needed. The sessions database handle is shared with the event log to avoid a
+duplicate open. Later private writes and database opens perform fresh validation;
+there is no persistent permission cache. Link/owner checks, workspace exclusions,
+private SQLite sidecars, and the MXC startup probe remain enforced.
+
+A clean project still uses global state, provider discovery, and MCP servers. Use
+the trace to distinguish those costs; `--list-models` skips the normal state and
+sandbox initialization and therefore is not a full startup performance test.
+
 ## Required and recommended tools
 
 Extract the **whole** matching Windows ZIP, keeping `native/` next to `cleetus.exe`.
