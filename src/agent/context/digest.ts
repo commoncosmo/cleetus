@@ -17,9 +17,6 @@ export interface DigestState {
   coveredThroughIndex: number;
   /** Bounded deterministic evidence, independent of whether a model summary succeeds. */
   recoveryFacts?: Record<string, string>;
-  summaryFailures?: number;
-  summaryCooldown?: number;
-  summaryKey?: string;
 }
 
 /** Hard cap on digest length (~1000 tokens). The prompt asks for ~20 lines, but a
@@ -125,8 +122,7 @@ function recoveryFacts(old: DigestState | undefined, slice: Message[]): Record<s
   return facts;
 }
 
-/** Deterministic fallback digest: scrape file paths edited and commands run from a slice.
- *  Used when the summarizer fails so trimmed context is never lost wholesale. Pure. */
+/** Extract bounded excerpts from earlier requests, replies, edits, and commands. */
 export function extractiveDigest(slice: Message[], evidence: Message[] = slice): string {
   const lines: string[] = [];
   const results = new Map(
@@ -136,6 +132,10 @@ export function extractiveDigest(slice: Message[], evidence: Message[] = slice):
     if (m.role === "user" && m.userRequest !== null) {
       const request = stripSystemReminders(m.userRequest ?? m.content).trim();
       if (request) lines.push(`- user decision/request: ${request.slice(0, 700)}`);
+    }
+    if (m.role === "assistant" && !m.toolCalls?.length) {
+      const reply = m.content.trim();
+      if (reply) lines.push(`- earlier assistant reply: ${reply.slice(0, 400)}`);
     }
     for (const c of m.toolCalls ?? []) {
       const args = (c.args ?? {}) as Record<string, unknown>;
@@ -148,10 +148,17 @@ export function extractiveDigest(slice: Message[], evidence: Message[] = slice):
       } else if (CMD_TOOLS.has(c.name)) {
         const cmd =
           typeof args.command === "string" ? args.command : `${c.name} ${JSON.stringify(args)}`;
-        if (cmd)
-          lines.push(
-            `- ran: ${cmd.slice(0, 120)}${results.has(c.id) ? ` => ${results.get(c.id)!.slice(0, 500)}` : " (outcome not recorded)"}`,
-          );
+        if (!cmd) continue;
+        const output = results.get(c.id);
+        // Large arbitrary command output can crowd out the useful entries. Structured check
+        // diagnostics are retained separately by recoveryFacts.
+        const outcome =
+          output === undefined
+            ? " (outcome not recorded)"
+            : output.length > 500
+              ? " (long output omitted)"
+              : ` => ${output}`;
+        lines.push(`- ran: ${cmd.slice(0, 120)}${outcome}`);
       } else if (c.name === "web_fetch" && typeof args.url === "string") {
         lines.push(
           `- documentation request: ${JSON.stringify(args.url)}; reuse web_fetch query/start_line from the session cache`,
@@ -160,7 +167,72 @@ export function extractiveDigest(slice: Message[], evidence: Message[] = slice):
     }
   }
   const uniq = [...new Set(lines)].slice(-40);
-  return uniq.length ? `Files edited and commands run in trimmed context:\n${uniq.join("\n")}` : "";
+  return uniq.length ? `Excerpts from trimmed context:\n${uniq.join("\n")}` : "";
+}
+
+function withoutActiveRequest(slice: Message[], activeRequest: string | undefined): Message[] {
+  if (activeRequest === undefined) return slice;
+  return slice.filter(
+    (message) =>
+      message.role !== "user" ||
+      stripSystemReminders(message.userRequest ?? message.content).trim() !== activeRequest,
+  );
+}
+
+function digestWithEvidence(
+  old: DigestState | undefined,
+  foldedSlice: Message[],
+  coveredThroughIndex: number,
+  activeRequest: string | undefined,
+  summary: string,
+  keepNewest: boolean,
+): DigestState {
+  const facts = recoveryFacts(old, foldedSlice);
+  if (
+    activeRequest !== undefined &&
+    facts.request === `User request: ${activeRequest.slice(0, 400)}`
+  ) {
+    Reflect.deleteProperty(facts, "request");
+  }
+  // Diagnostics and document locations outrank a long trail of edited paths. Keep each
+  // category bounded before joining so an early category cannot evict all later evidence.
+  const values = (prefix: string, cap: number) =>
+    Object.entries(facts)
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([, value]) => value)
+      .join("\n")
+      .slice(0, cap);
+  const evidence = [
+    facts.request,
+    values("check:", 1000),
+    values("doc:", 700),
+    values("edit:", 300),
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const suffix = evidence ? `${RECOVERY_MARKER}${evidence}` : "";
+  const available = MAX_DIGEST_CHARS - suffix.length;
+  return {
+    text: (keepNewest ? summary.slice(-available) : summary.slice(0, available)) + suffix,
+    coveredThroughIndex,
+    recoveryFacts: facts,
+  };
+}
+
+/** Automatic compaction runs on the prompt's critical path. Fold the entire span locally,
+ * preserving structured evidence and the newest excerpts without calling the provider. */
+export function compactLocally(
+  old: DigestState,
+  slice: Message[],
+  coveredThroughIndex: number,
+  activeRequest?: string,
+): DigestState {
+  const active =
+    activeRequest === undefined ? undefined : stripSystemReminders(activeRequest).trim();
+  const foldedSlice = withoutActiveRequest(slice, active);
+  const prior = old.text.split(RECOVERY_MARKER)[0]!;
+  const summary = [prior, extractiveDigest(foldedSlice)].filter(Boolean).join("\n\n");
+  return digestWithEvidence(old, foldedSlice, coveredThroughIndex, active, summary, true);
 }
 
 /** Split a slice into consecutive sub-slices each costing at most `maxTokens`. A single
@@ -212,7 +284,7 @@ async function summarizeWithRetry(
 }
 
 /**
- * Fold `slice` into the rolling digest resiliently. Sub-chunks the slice when it exceeds
+ * Fold `slice` into the rolling digest on an explicit /compact. Sub-chunks the slice when it exceeds
  * `maxSummaryInputTokens`, summarizes each chunk (one retry), and on chunk failure appends
  * an extractive digest of that chunk instead of dropping it. Coverage always advances to
  * `newCoveredThroughIndex`; the digest is never left empty for a non-empty slice.
@@ -234,99 +306,65 @@ export async function compact(
     maxSummaryInputTokens: number;
     instruction?: string;
     maxElapsedMs?: number;
-    summaryKey?: string;
-    forceSummary?: boolean;
     /** Already kept verbatim by the caller; do not duplicate it in historical evidence. */
     activeRequest?: string;
   },
-): Promise<{ state: DigestState; ok: boolean; partial: boolean; skippedSummary: boolean }> {
+): Promise<{ state: DigestState; ok: boolean; partial: boolean }> {
   let text = (old?.text ?? "").split(RECOVERY_MARKER)[0]!;
   const activeRequest =
     opts.activeRequest === undefined ? undefined : stripSystemReminders(opts.activeRequest).trim();
-  const foldedSlice =
-    activeRequest === undefined
-      ? slice
-      : slice.filter(
-          (message) =>
-            message.role !== "user" ||
-            stripSystemReminders(message.userRequest ?? message.content).trim() !== activeRequest,
-        );
-  const facts = recoveryFacts(old, foldedSlice);
-  if (
-    activeRequest !== undefined &&
-    facts.request === `User request: ${activeRequest.slice(0, 400)}`
-  )
-    Reflect.deleteProperty(facts, "request");
-  const sameSummarizer = old?.summaryKey === opts.summaryKey;
-  let failures = sameSummarizer ? (old?.summaryFailures ?? 0) : 0;
-  let cooldown = sameSummarizer && !opts.forceSummary ? (old?.summaryCooldown ?? 0) : 0;
-  const skipSummary = cooldown > 0;
-  if (skipSummary) cooldown--;
-  let ok = true;
+  const foldedSlice = withoutActiveRequest(slice, activeRequest);
   let partial = false;
   const deadlineAt =
     opts.maxElapsedMs === undefined ? null : Date.now() + Math.max(1, opts.maxElapsedMs);
   for (const chunk of chunkSlice(foldedSlice, opts.maxSummaryInputTokens)) {
-    const summary = skipSummary
-      ? null
-      : await summarizeWithRetry(summarize, text, chunk, opts.instruction, deadlineAt);
+    const summary = await summarizeWithRetry(summarize, text, chunk, opts.instruction, deadlineAt);
     if (summary !== null) {
       text = summary;
     } else {
-      ok = false;
       partial = true;
       const extractive = extractiveDigest(chunk, foldedSlice);
       if (extractive) text = text ? `${text}\n\n${extractive}` : extractive;
     }
   }
-  // On degraded summaries, newest evidence wins. Never advance coverage while discarding
-  // all of the newly folded facts behind an already-full old digest.
-  if (!skipSummary) {
-    failures = partial ? failures + 1 : 0;
-    // A slow summarizer should not impose another timeout on every few tool calls.
-    // Probe again after three fast extractive compactions; /compact can retry immediately.
-    if (failures >= 2) cooldown = 3;
-  }
-  // Diagnostics and document locations outrank a long trail of edited paths. Keep each
-  // category bounded before joining so an early category cannot evict all later evidence.
-  const values = (prefix: string, cap: number) =>
-    Object.entries(facts)
-      .filter(([key]) => key.startsWith(prefix))
-      .map(([, value]) => value)
-      .join("\n")
-      .slice(0, cap);
-  const evidence = [
-    facts.request,
-    values("check:", 1000),
-    values("doc:", 700),
-    values("edit:", 300),
-  ]
-    .filter(Boolean)
-    .join("\n");
-  const suffix = evidence ? `${RECOVERY_MARKER}${evidence}` : "";
-  const available = MAX_DIGEST_CHARS - suffix.length;
-  text = (partial ? text.slice(-available) : text.slice(0, available)) + suffix;
   return {
-    state: {
+    state: digestWithEvidence(
+      old,
+      foldedSlice,
+      newCoveredThroughIndex,
+      activeRequest,
       text,
-      coveredThroughIndex: newCoveredThroughIndex,
-      recoveryFacts: facts,
-      summaryFailures: failures,
-      summaryCooldown: cooldown,
-      summaryKey: opts.summaryKey,
-    },
-    ok,
+      partial,
+    ),
+    ok: !partial,
     partial,
-    skippedSummary: skipSummary,
   };
 }
 
 /** The synthetic message carrying the digest, placed right after the system prompt.
  *  Returns null for an empty digest. */
-export function buildDigestMessage(text: string): Message | null {
+export function buildDigestMessage(
+  text: string,
+  maxTokens = Number.POSITIVE_INFINITY,
+): Message | null {
   if (!text.trim()) return null;
+  const header =
+    "[Earlier in this session — historical context trimmed to fit the window]\nThe separately preserved latest user message is the active task. Do not resume an older request from this digest unless that active message explicitly asks you to.\n\n";
+  const available = maxTokens * 4 - header.length;
+  if (available <= 0) return null;
+  let body = text;
+  if (text.length > available) {
+    const [summary = "", evidence] = text.split(RECOVERY_MARKER);
+    // Preserve check failures and source locations before general historical narration.
+    const suffix = evidence ? `${RECOVERY_MARKER.trimStart()}${evidence}` : "";
+    const remaining = available - suffix.length - (suffix ? 2 : 0);
+    body =
+      remaining <= 0
+        ? suffix.slice(0, available)
+        : [suffix, summary.slice(-remaining)].filter(Boolean).join("\n\n");
+  }
   return {
     role: "user",
-    content: `[Earlier in this session — historical context trimmed to fit the window]\nThe separately preserved latest user message is the active task. Do not resume an older request from this digest unless that active message explicitly asks you to.\n\n${text}`,
+    content: header + body,
   };
 }

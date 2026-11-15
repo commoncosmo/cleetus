@@ -1,5 +1,8 @@
-import { isAbsolute, normalize, relative } from "node:path";
+import { isAbsolute, normalize, relative, resolve } from "node:path";
 import type { LoopGuardConfig } from "../config/loop-guard";
+import type { ToolCall } from "../providers/types";
+import { shellStatements } from "../tools/shell-statements";
+import type { ToolResult } from "../tools/types";
 
 const EDIT_TOOLS = new Set(["write_file", "edit_file", "apply_patch", "multi_edit"]);
 const CMD_TOOLS = new Set(["bash", "run_tests"]);
@@ -108,6 +111,126 @@ export function repeatedProbeRecoveryAdvice(command: string): string {
     return "This probe re-dispatches an event on document, which changes its target. Save the original clicked element and call the shared handler with it, or dispatch a new event on that element; then test the early-click path once.";
   }
   return "Inspect the code path and test assertion once, make one hypothesis-driven change, then run one focused check. If the result still repeats, report the observed and expected values as an unresolved limitation.";
+}
+
+const INSPECTION_TOOLS = new Set([
+  "read_file",
+  "grep",
+  "glob",
+  "code_search",
+  "git_status",
+  "git_diff",
+  "git_log",
+]);
+const SHELL_INSPECTION =
+  /^(?:(?:pwd|ls|cat|tree|rg|grep|head|tail|wc|stat|find|sort|uniq|Get-Content|Get-ChildItem|Select-String|Test-Path|Out-String)|sed\s+-n\s+(?:'[\d,$]*p'|"[\d,$]*p"|[\d,$]*p)|git\s+(?:status|diff|log|show))(?:\s|$)/i;
+
+/** Only classify recognizable read pipelines. This heuristic never authorizes a command. */
+function isShellInspection(command: unknown): boolean {
+  if (typeof command !== "string" || /`|\$\(/.test(command)) return false;
+  const text = command.replace(/\b2\s*>\s*(?:\/dev\/null|\&1)/g, "");
+  if (/[<>]/.test(text)) return false;
+  const statements = shellStatements(text.replaceAll("|", ";"));
+  let inspected = false;
+  for (const statement of statements) {
+    const part = statement.trim();
+    if (/^(?:cd|echo)(?:\s|$)/i.test(part)) continue;
+    if (
+      !SHELL_INSPECTION.test(part) ||
+      /^find\b.*\s-(?:delete|exec(?:dir)?|ok(?:dir)?|fprint\w*|fls)\b/i.test(part) ||
+      /^sort\b.*\s(?:-o\S*|--output\b)/i.test(part) ||
+      /^sed\b.*\s(?:-i\S*|--in-place\b)/i.test(part)
+    )
+      return false;
+    inspected = true;
+  }
+  return inspected;
+}
+
+function rememberEvidence(seen: Set<string>, key: string, limit: number): boolean {
+  const known = seen.delete(key);
+  seen.add(key);
+  if (seen.size > limit) seen.delete(seen.values().next().value!);
+  return known;
+}
+
+/** Turn-local evidence coverage. A cycle through several files, or the same evidence through
+ * different shell inspections, is still repetition after it leaves the prompt or signature
+ * window. Count repetitions across recent inspections so occasional re-reads during
+ * productive exploration do not accumulate indefinitely. */
+export class RepeatedInspectionGuard {
+  private readonly results = new Set<string>();
+  private readonly sourceLines = new Set<string>();
+  private readonly recent: boolean[] = [];
+  private repeatedThisRound = false;
+  private warned = false;
+  private readonly stopAt: number;
+  private readonly windowSize: number;
+
+  constructor(
+    private readonly cfg: LoopGuardConfig,
+    private readonly projectDir: string,
+  ) {
+    this.stopAt = cfg.noProgressThreshold * cfg.blockThreshold;
+    this.windowSize = Math.max(cfg.windowSize, cfg.noProgressThreshold, this.stopAt);
+  }
+
+  observe(call: Pick<ToolCall, "name" | "args">, result: ToolResult): void {
+    if (!result.ok) return;
+    if (
+      (result.diff && (result.diff.created || result.diff.before !== result.diff.after)) ||
+      call.name === "scaffold"
+    ) {
+      this.results.clear();
+      this.sourceLines.clear();
+      this.recent.length = 0;
+      this.repeatedThisRound = false;
+      this.warned = false;
+      return;
+    }
+    const args = (call.args ?? {}) as { command?: unknown; path?: unknown; cwd?: unknown };
+    const shell = call.name === "bash";
+    if (!INSPECTION_TOOLS.has(call.name) && !(shell && isShellInspection(args.command))) return;
+    const body = result.output?.trimEnd();
+    if (!body) return;
+    const path = args.path ?? args.cwd;
+    const scope = typeof path === "string" ? resolve(this.projectDir, path) : this.projectDir;
+    const evidence = shell ? body.replace(/^[ \t]*(?:\d+:|\d+[ \t]+)/gm, "") : body;
+    const lines = evidence
+      .slice(0, 64_000)
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length >= 8);
+    const seenLines = lines.map((line) =>
+      rememberEvidence(this.sourceLines, String(Bun.hash(line)), 4096),
+    );
+    const sameResult = rememberEvidence(
+      this.results,
+      `${call.name}:${scope}:${Bun.hash(evidence)}`,
+      256,
+    );
+    // A shell read can select/reorder previously read lines or add line numbers. Require
+    // several substantive lines for cross-tool matching; indexed reads use exact scoped output
+    // so different files with shared boilerplate and newly edited content still count as new.
+    const repeated = sameResult || (shell && lines.length >= 4 && seenLines.every(Boolean));
+    this.recent.push(repeated);
+    if (this.recent.length > this.windowSize) this.recent.shift();
+    this.repeatedThisRound ||= repeated;
+  }
+
+  /** Evaluate once per model round so a parallel batch cannot warn and stop in the same round. */
+  finishRound(): { kind: "warn" | "stop"; count: number } | null {
+    const repeated = this.repeatedThisRound;
+    this.repeatedThisRound = false;
+    const count = this.recent.filter(Boolean).length;
+    if (count < this.cfg.noProgressThreshold) this.warned = false;
+    if (!repeated || count < this.cfg.noProgressThreshold) return null;
+    if (!this.warned) {
+      this.warned = true;
+      return { kind: "warn", count };
+    }
+    return this.stopAt > 0 && count >= this.stopAt ? { kind: "stop", count } : null;
+  }
 }
 
 interface WindowEntry {

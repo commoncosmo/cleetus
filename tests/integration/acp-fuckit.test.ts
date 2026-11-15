@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pumpStdin } from "../../src/acp/server";
 import { AcpTransport } from "../../src/acp/transport";
+import { DEFAULT_LOOP_GUARD } from "../../src/config/loop-guard";
 import { approveProjectConfiguration } from "../../src/security/project-trust";
 
 for (const scenario of [
@@ -14,6 +15,7 @@ for (const scenario of [
   "plan",
   "metadata",
   "config-only",
+  "loop-guard",
 ] as const) {
   test(`ACP CLI tool execution: ${scenario}`, async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "cleetus-acp-fuckit-")));
@@ -22,6 +24,7 @@ for (const scenario of [
     await mkdir(project);
     await mkdir(configDir);
     const enabled = scenario !== "default" && scenario !== "config-only";
+    const looping = scenario === "loop-guard";
     const target =
       scenario === "fuckit"
         ? join(root, "outside.txt")
@@ -36,7 +39,9 @@ for (const scenario of [
         }
         if (path === "/v1/chat/completions") {
           const body = (await req.json()) as { messages: { role: string }[] };
-          const callTool = body.messages.at(-1)?.role === "user";
+          const callTool = looping
+            ? toolCalls < DEFAULT_LOOP_GUARD.cmdFailAbort + 2
+            : body.messages.at(-1)?.role === "user";
           if (callTool) toolCalls++;
           const chunks = callTool
             ? [
@@ -49,16 +54,18 @@ for (const scenario of [
                             index: 0,
                             id: `write-${toolCalls}`,
                             function: {
-                              name: scenario === "bash" ? "bash" : "write_file",
+                              name: scenario === "bash" || looping ? "bash" : "write_file",
                               arguments: JSON.stringify(
-                                scenario === "bash"
-                                  ? {
-                                      command:
-                                        process.platform === "win32"
-                                          ? "[IO.File]::WriteAllText((Join-Path (Get-Location) 'result.txt'),'ACP test')"
-                                          : "printf 'ACP test' > result.txt",
-                                    }
-                                  : { path: target, content: "ACP test" },
+                                looping
+                                  ? { command: "exit 7" }
+                                  : scenario === "bash"
+                                    ? {
+                                        command:
+                                          process.platform === "win32"
+                                            ? "[IO.File]::WriteAllText((Join-Path (Get-Location) 'result.txt'),'ACP test')"
+                                            : "printf 'ACP test' > result.txt",
+                                      }
+                                    : { path: target, content: "ACP test" },
                               ),
                             },
                           },
@@ -135,7 +142,7 @@ for (const scenario of [
           prompt: [{ type: "text", text: "Write the requested test file." }],
         });
       expect(await prompt()).toMatchObject({ stopReason: "end_turn" });
-      expect(toolCalls).toBe(1);
+      expect(toolCalls).toBe(looping ? DEFAULT_LOOP_GUARD.cmdFailAbort : 1);
       expect(prompts).toBe(enabled ? 0 : 1);
       if (scenario === "fuckit" || scenario === "bash") {
         expect(await readFile(target, "utf8")).toBe("ACP test");

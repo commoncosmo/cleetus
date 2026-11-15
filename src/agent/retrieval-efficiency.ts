@@ -4,7 +4,19 @@ import { classifyTask } from "./coding-task";
 
 export type RetrievalEfficiencyKind = "retrieval" | "data_artifact" | null;
 
-const DATA_ARTIFACT_RE = /\b(?:json|csv|data|results?|forecast)\b/i;
+const DATA_FORMAT = String.raw`(?:json|csv|data file)\b`;
+const DATA_FILENAME = String.raw`(?:["'\x60][^"'\x60\n]+\.(?:json|csv)["'\x60]|[\w./\\-]+\.(?:json|csv)\b)`;
+const OUTPUT_REQUEST_START = String.raw`(?:^\s*(?:(?:please|(?:can|could|would) you)\s+)*|\b(?:and|then)\s+|,\s*)`;
+const DATA_OUTPUT_VERB =
+  "save|export|write|store|create|generate|make|produce|return|output|emit|download";
+const DIRECT_DATA_OUTPUT_RE = new RegExp(
+  String.raw`${OUTPUT_REQUEST_START}(?:${DATA_OUTPUT_VERB})\s+(?:(?:an?|the)\s+)?(?:new\s+)?(?:${DATA_FORMAT}|${DATA_FILENAME})`,
+  "i",
+);
+const DATA_OUTPUT_DESTINATION_RE = new RegExp(
+  String.raw`${OUTPUT_REQUEST_START}(?:${DATA_OUTPUT_VERB}|report|convert)\s+.*?\b(?:(?:as|to|into|in)\s+(?:an?\s+)?${DATA_FORMAT}|(?:as|to|into)\s+${DATA_FILENAME})`,
+  "i",
+);
 const URL_RE = /https?:\/\/[^\s"'<>]+/g;
 const DOWNLOAD_RE = /\b(?:curl|wget)\b/i;
 const FILE_OUTPUT_RE = /(?:^|\s)(?:-o|--output|-O)(?:\s|=)|(?:^|[^>])>{1,2}(?!>)/m;
@@ -22,12 +34,21 @@ export interface DownloadRequest {
   destination: string | null;
 }
 
-/** Narrow task shape used for retrieval guidance. Document/code artifacts such as README edits
- * deliberately stay out: they may need repository inspection. */
+/** Data-artifact guidance requires a requested output format or destination. A filename in
+ * an inspection prompt identifies an input and should leave the inspection guard active. */
 export function retrievalEfficiencyKind(input: string): RetrievalEfficiencyKind {
   const taskClass = classifyTask(input);
   if (taskClass === "retrieval") return "retrieval";
-  if (taskClass === "artifact" && DATA_ARTIFACT_RE.test(input)) return "data_artifact";
+  if (
+    taskClass === "artifact" &&
+    input
+      .split(/\r?\n|;|[.!?]\s+/)
+      .some(
+        (clause) => DIRECT_DATA_OUTPUT_RE.test(clause) || DATA_OUTPUT_DESTINATION_RE.test(clause),
+      )
+  ) {
+    return "data_artifact";
+  }
   return null;
 }
 

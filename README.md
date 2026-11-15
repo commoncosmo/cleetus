@@ -496,8 +496,8 @@ loop_guard:
   fail_repeat_threshold: 3    # same failing command repeated N times → warn
   window_size: 12             # sliding window of recent tool calls examined
   cooldown: 6                 # tool calls to wait before warning again
-  no_progress_threshold: 4    # repeated successful no-ops (ls/read/todo) → warn
-  block_threshold: 2          # refuse a repeated failing command / stall after N warnings (0 = warn-only)
+  no_progress_threshold: 4    # repeated calls or repeated inspection evidence → warn
+  block_threshold: 2          # refuse repeated calls or stop an inspection loop (0 = warn-only)
   hidden_repeat_threshold: 3  # calls to capability-hidden tools (any name) → warn; turn aborts at 2x
   cmd_fail_abort: 6           # same failing command N times → abort a plain session's turn (0 disables)
 
@@ -536,10 +536,10 @@ context:
   budget_tokens: 24000        # unknown-window fallback; additionally clamped to 16384
   max_budget_tokens: 32000    # ceiling on the budget when the served window IS known
   response_reserve_tokens: 2048   # tokens held back for the reply (0 = no reserve)
-  summarize: true             # roll trimmed-out history into a same-model digest
+  summarize: true             # keep a local digest on automatic trims; /compact uses the model
   trim_high_water: 0.85       # trim when the live tail exceeds this fraction of budget
   trim_low_water: 0.55        # trim down to this fraction (must be < trim_high_water)
-  max_summary_input_tokens: 6000
+  max_summary_input_tokens: 6000    # chunk size for explicit /compact summaries
   max_deep_tool_result_chars: 2000   # deep-slim large tool results when trimming
   max_live_tool_result_chars: 12000  # cap live-turn tool results (larger than the deep cap)
   warn_tokens: null           # null derives threshold: 70% of served window, or 50000 if unknown
@@ -716,8 +716,8 @@ test dependencies just to obtain a passing check. A focused test pass does not v
 | `fail_repeat_threshold` | `3` | Same failing command repeated N times → warn. |
 | `window_size` | `12` | Sliding window of recent tool calls examined. |
 | `cooldown` | `6` | Tool calls before another warning fires. |
-| `no_progress_threshold` | `4` | Repeated successful no-ops (ls/read/todo) → warn. |
-| `block_threshold` | `2` | Warnings on the same failing-command/stall signature before the call is refused pre-dispatch. `0` disables (warn-only). A successful edit resets the counts. |
+| `no_progress_threshold` | `4` | Warn on repeated calls or repeated evidence across recent inspections, including different commands and tool batches. |
+| `block_threshold` | `2` | Warnings on the same failing-command/stall signature before the call is refused. For mixed inspections, stop after a warning when `block_threshold × no_progress_threshold` recent inspections repeat evidence. `0` is warn-only. Confirmed file changes reset inspection tracking. |
 | `hidden_repeat_threshold` | `3` | Calls to tools hidden at the current capability (any tool name) within the window → one warning; at 2× the turn aborts (`hidden_tools`). Both triggers saturate at `window_size`, so tuning `window_size` below these values still warns/aborts once the window fills. |
 | `cmd_fail_abort` | `6` | Consecutive failures of the same command (cleared only by a passing run, not by an edit) after which a plain session's turn is stopped. `0` disables. |
 
@@ -784,7 +784,7 @@ recommendation and explicitly labels hybrid staging unavailable. You can still f
 | `budget_tokens` | `24000` | Fallback budget when the server's real window is unknown; clamped to `16384` and `max_budget_tokens`. |
 | `max_budget_tokens` | `32000` | Ceiling on the history budget when the served window is known (scales big-window models up from `budget_tokens` while bounding per-call latency). |
 | `response_reserve_tokens` | `2048` | Tokens reserved for the reply (`0` = none). |
-| `summarize` | `true` | Roll trimmed history into a same-model digest. |
+| `summarize` | `true` | Keep a local digest on automatic trims. Explicit `/compact` uses the active model. |
 | `trim_high_water` | `0.85` | Trim when the live tail exceeds this fraction of budget. |
 | `trim_low_water` | `0.55` | Trim down to this fraction (must be `< trim_high_water`). |
 | `max_summary_input_tokens` | `6000` | Cap on history fed to the summarizer. |

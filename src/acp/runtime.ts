@@ -766,6 +766,7 @@ export async function buildAcpRuntime(options: AcpRuntimeOptions): Promise<AcpRu
     resolvePermission: (req) => permissionRouter.current(req),
     maxToolLoops: () => currentSessionConfig().maxToolLoops,
     context: () => config.context,
+    loopGuard: () => projectServiceHolder.current?.config.loopGuard ?? config.loopGuard,
     historyStore,
     diagnostics: projectAdapters.diagnostics,
     formatter: projectAdapters.formatter,

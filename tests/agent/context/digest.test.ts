@@ -4,6 +4,7 @@ import {
   SummaryTimeoutError,
   buildDigestMessage,
   compact,
+  compactLocally,
   extractiveDigest,
   renderSliceForSummary,
 } from "../../../src/agent/context/digest";
@@ -67,7 +68,7 @@ test("extractiveDigest lists edited files and commands, deduped", () => {
 });
 
 test("extractiveDigest returns empty string for a slice with nothing to extract", () => {
-  expect(extractiveDigest([{ role: "assistant", content: "just text" }])).toBe("");
+  expect(extractiveDigest([{ role: "tool", content: "unpaired tool output" }])).toBe("");
 });
 
 test("compact folds a normal slice in one summarizer call", async () => {
@@ -406,54 +407,32 @@ test("does not duplicate the caller's verbatim active request during degraded co
   expect(result.state.text).toContain("src/App.tsrx");
 });
 
-test("repeated failed summaries back off for three compactions, then probe the summarizer again", async () => {
-  let calls = 0;
-  let state: DigestState | undefined;
-  const summarize = async () => {
-    calls++;
-    throw new SummaryTimeoutError(30);
-  };
-  for (let i = 1; i <= 5; i++) {
-    const result = await compact(state, [_edit(`src/file-${i}.ts`)], i, summarize, {
-      maxSummaryInputTokens: 6000,
-      summaryKey: "strata:iq3_s",
-    });
-    state = result.state;
-    expect(result.partial).toBe(true);
-    expect(result.skippedSummary).toBe(i >= 3);
-    expect(state.text).toContain(`file-${i}.ts`);
-  }
-  expect(calls).toBe(2);
-  expect(state?.coveredThroughIndex).toBe(5);
-  state = (
-    await compact(state, [_edit("src/probe.ts")], 6, summarize, {
-      maxSummaryInputTokens: 6000,
-      summaryKey: "strata:iq3_s",
-    })
-  ).state;
-  expect(calls).toBe(3);
-  await compact(
+test("local folds preserve older check evidence, add new edits, and omit the active request", () => {
+  let state: DigestState = { text: "", coveredThroughIndex: 0 };
+  state = compactLocally(
     state,
-    [_edit("src/new-model.ts")],
-    7,
-    async () => {
-      calls++;
-      return "new model recovered";
-    },
-    { maxSummaryInputTokens: 6000, summaryKey: "other:model" },
+    [
+      _ran("bun run build"),
+      { role: "tool", toolCallId: "2", content: "src/main.ts: TS2307 missing import" },
+    ],
+    2,
   );
-  expect(calls).toBe(4);
-  const manual = await compact(
+  const active = "Inspect package.json using the read-only commands.";
+  const recent = Array.from({ length: 100 }, (_, i) => _edit(`src/file-${i}.ts`));
+  state = compactLocally(
     state,
-    [_edit("src/manual.ts")],
-    7,
-    async () => {
-      calls++;
-      return "manual retry";
-    },
-    { maxSummaryInputTokens: 6000, summaryKey: "strata:iq3_s", forceSummary: true },
+    [
+      ...recent,
+      { role: "assistant", content: "The project compiles with Vite." },
+      { role: "user", content: active },
+    ],
+    104,
+    active,
   );
-  expect(calls).toBe(5);
-  expect(manual.partial).toBe(false);
-  expect(manual.state.summaryFailures).toBe(0);
+  expect(state.text).toContain("src/main.ts: TS2307 missing import");
+  expect(state.text).toContain("src/file-99.ts");
+  expect(state.text).toContain("earlier assistant reply: The project compiles with Vite.");
+  expect(state.text).not.toContain(active);
+  expect(state.text.length).toBeLessThanOrEqual(4000);
+  expect(state.coveredThroughIndex).toBe(104);
 });

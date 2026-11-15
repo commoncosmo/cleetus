@@ -103,6 +103,7 @@ import {
   SummaryTimeoutError,
   buildDigestMessage,
   compact,
+  compactLocally,
   renderSliceForSummary,
 } from "./context/digest";
 import { slimDeepHistory } from "./context/slim";
@@ -130,7 +131,12 @@ import {
   investigationToolSurface,
   isCodeInvestigation,
 } from "./investigation";
-import { LoopGuard, RepeatedProbeGuard, repeatedProbeRecoveryAdvice } from "./loop-guard";
+import {
+  LoopGuard,
+  RepeatedInspectionGuard,
+  RepeatedProbeGuard,
+  repeatedProbeRecoveryAdvice,
+} from "./loop-guard";
 import {
   FORCE_PLAN_SYNTHESIS_PROMPT,
   PLAN_APPROVAL_MESSAGE,
@@ -1193,19 +1199,17 @@ export class AgentRuntime {
   /** Build the messages to send: [system, digest?, recent tail], using WATERMARK (hysteresis)
    *  trimming with a PERSISTED, FROZEN per-session boundary. The boundary only ever advances
    *  when the live tail crosses the high-water mark; until then the prompt prefix is
-   *  byte-stable between turns, which is what restores server-side KV-cache reuse. Summarizing
-   *  the newly-frozen prefix into the digest is advisory — it never throws to the turn loop. */
-  private async assembleMessages(
+   *  byte-stable between turns, which is what restores server-side KV-cache reuse. Folding
+   *  the newly-frozen prefix is local so it cannot delay the turn with another model call. */
+  private assembleMessages(
     sessionId: string,
     history: Message[],
     baseSystemPrompt: string,
-    provider: Provider,
     model: string,
     providerName: string,
-    abortSignal: AbortSignal,
     /** Estimated tokens of the tool schemas this call will carry (0 = tool-less call). */
     toolSchemaTokens = 0,
-  ): Promise<Message[]> {
+  ): Message[] {
     const notebook = investigationNotes(history);
     const toolHints = this.opts.tools
       .all()
@@ -1269,19 +1273,25 @@ export class AgentRuntime {
     const reserves = {
       responseReserveTokens: cfg.responseReserveTokens,
       systemPromptTokens: estimateTokens(systemPrompt),
-      digestTokens: estimateTokens(state.digest.text),
       evidenceTokens:
         (notebookMessage ? messageTokens(notebookMessage) : 0) +
         (checkpointMessage ? messageTokens(checkpointMessage) : 0),
       toolSchemaTokens,
       liveUserMessageTokens: keptUser ? messageTokens(keptUser) : 0,
     };
-    const budget = computeBudget({
+    const budgetOptions = {
       contextLength,
       configBudgetTokens: cfg.budgetTokens,
       maxBudgetTokens: cfg.maxBudgetTokens,
       ...reserves,
-    });
+    };
+    const historyBudget = computeBudget({ ...budgetOptions, digestTokens: 0 });
+    // Give the digest at most a quarter of the history budget. Round down to 128-token
+    // increments so small request-size changes don't invalidate the cached prompt prefix.
+    const maxDigestTokens = Math.floor(historyBudget / 512) * 128;
+    let digestMessage = buildDigestMessage(state.digest.text, maxDigestTokens);
+    const digestTokens = digestMessage ? messageTokens(digestMessage) : 0;
+    const budget = computeBudget({ ...budgetOptions, digestTokens });
 
     // Count the same bounded tool bodies that will be sent. Raw MCP results can be huge but
     // remain in persisted history; charging those invisible bytes caused compaction every call.
@@ -1305,7 +1315,10 @@ export class AgentRuntime {
     const highFrac = cfg.trimHighWater;
     const lowFrac = Math.min(cfg.trimLowWater, highFrac * 0.95);
 
-    const tailTokens = sumTokens(boundedHistory, state.boundaryIndex, boundedHistory.length);
+    const reservedIndex = keptUser ? liveStart : -1;
+    const tailTokens =
+      sumTokens(boundedHistory, state.boundaryIndex, boundedHistory.length) -
+      (originating && reservedIndex >= state.boundaryIndex ? messageTokens(originating) : 0);
     // `budget` already excludes the system prompt, digest, response reserve, and the kept user
     // message (see computeBudget), so it is the allowance for the history tail alone. Trim
     // whenever the tail exceeds high-water. The tail now spans the live turn too, so a long
@@ -1314,7 +1327,7 @@ export class AgentRuntime {
     if (tailTokens > high) {
       const newBoundary = protectFreshestToolResult(
         history,
-        computeRecentBoundary(boundedHistory, budget * lowFrac),
+        computeRecentBoundary(boundedHistory, budget * lowFrac, reservedIndex),
       );
       if (newBoundary > state.boundaryIndex) {
         const slice = boundedHistory.slice(state.digest.coveredThroughIndex, newBoundary);
@@ -1327,55 +1340,31 @@ export class AgentRuntime {
               reason: "auto",
               tailTokens,
               budgetTokens: budget,
+              historyBudgetTokens: historyBudget,
               highWaterTokens: high,
               contextLength,
               toolSchemaTokens,
+              digestTokens,
             },
           });
           const t0 = Date.now();
-          const {
-            state: digest,
-            ok,
-            partial,
-            skippedSummary,
-          } = await compact(
+          state.digest = compactLocally(
             state.digest,
             slice,
             newBoundary,
-            (oldText, s, instruction, timeoutMs) =>
-              this.summarizeSlice(
-                provider,
-                model,
-                oldText,
-                s,
-                abortSignal,
-                instruction,
-                timeoutMs ?? cfg.summaryTimeoutMs,
-              ),
-            {
-              maxSummaryInputTokens: cfg.maxSummaryInputTokens,
-              maxElapsedMs: cfg.summaryTimeoutMs,
-              summaryKey: `${providerName}:${model}`,
-              activeRequest: originating?.userRequest ?? originating?.content,
-            },
+            originating?.userRequest ?? originating?.content,
           );
-          state.digest = digest;
           this.opts.log.append({
             sessionId,
             type: "compaction_end",
             payload: {
               messageCount: slice.length,
               elapsedMs: Date.now() - t0,
-              outcome: ok ? "summarized" : partial ? "partial" : "dropped",
-              strategy: skippedSummary ? "extractive_cooldown" : "model",
+              outcome: "summarized",
+              strategy: "extractive",
             },
           });
-          this.emitTrimNotice(
-            sessionId,
-            slice.length,
-            ok ? "summarized" : partial ? "partial" : "dropped",
-            skippedSummary,
-          );
+          this.emitTrimNotice(sessionId, slice.length, "local");
         } else {
           state.digest = { text: "", coveredThroughIndex: newBoundary };
           this.emitTrimNotice(sessionId, slice.length, "dropped");
@@ -1383,18 +1372,20 @@ export class AgentRuntime {
         state.boundaryIndex = newBoundary;
         state.warned = false;
         this.todoReinjectBySession.add(sessionId);
+        digestMessage = buildDigestMessage(state.digest.text, maxDigestTokens);
       }
     }
 
     this.trimBySession.set(sessionId, state);
 
-    const digestMessage = buildDigestMessage(state.digest.text);
     // The elision guard must be conservative ACROSS routed pairs: a body elided under a
     // large pair's cap can be head/tail-cut by a later small-pair assembly, so reconcile
     // against the smallest cap this session has ever assembled with. Monotone non-increasing;
     // the cost of a stale small minimum is only a re-send (safe direction).
     state.liveCap = Math.min(liveCap, state.liveCap ?? Number.POSITIVE_INFINITY);
-    const tail = boundedHistory.slice(state.boundaryIndex);
+    const tail = boundedHistory
+      .slice(state.boundaryIndex)
+      .map((message) => (keptUser && message === originating ? keptUser : message));
     // Re-inject the originating user message verbatim when the boundary folded past it, so the
     // task itself is never summarized away. When the boundary is still at/before liveStart the
     // message is already in `tail`, so do NOT duplicate it.
@@ -1415,13 +1406,16 @@ export class AgentRuntime {
     ) {
       const system = systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : [];
       const fixedTokens =
-        sumTokens(system, 0, system.length) + toolSchemaTokens + reserves.evidenceTokens;
+        sumTokens(system, 0, system.length) +
+        toolSchemaTokens +
+        reserves.evidenceTokens +
+        reserves.liveUserMessageTokens;
       const recentBudget = Math.max(128, safeInputLimit - fixedTokens);
       const recentBoundary = protectFreshestToolResult(
         tail,
-        computeRecentBoundary(tail, recentBudget),
+        computeRecentBoundary(tail, recentBudget, reservedIndex - state.boundaryIndex),
       );
-      const recent = tail.slice(recentBoundary).filter((message) => message !== originating);
+      const recent = tail.slice(recentBoundary).filter((message) => message !== keptUser);
       assembled = [
         ...system,
         ...(notebookMessage ? [notebookMessage] : []),
@@ -1462,6 +1456,7 @@ export class AgentRuntime {
       highWaterTokens: high,
       lowWaterTokens: budget * lowFrac,
       ...reserves,
+      digestTokens,
       assembledInputTokens: sumTokens(assembled, 0, assembled.length) + toolSchemaTokens,
       liveToolResultChars: liveCap,
       deepToolResultChars: cfg.maxDeepToolResultChars,
@@ -1560,8 +1555,6 @@ export class AgentRuntime {
           maxSummaryInputTokens: cfg.maxSummaryInputTokens,
           instruction,
           maxElapsedMs: cfg.summaryTimeoutMs,
-          summaryKey: `${choice.provider}:${model}`,
-          forceSummary: true,
           activeRequest:
             history[liveTurnStart(history)]?.userRequest ??
             history[liveTurnStart(history)]?.content,
@@ -1675,17 +1668,17 @@ export class AgentRuntime {
   private emitTrimNotice(
     sessionId: string,
     count: number,
-    kind: "summarized" | "partial" | "dropped",
-    cooldown = false,
+    kind: "local" | "summarized" | "partial" | "dropped",
   ): void {
     const n = `${count} earlier message${count === 1 ? "" : "s"}`;
-    const text = cooldown
-      ? `Context trimmed: compacted ${n} with the fast extractive fallback (summarizer cooldown; no failed model call).`
-      : kind === "summarized"
-        ? `Context trimmed: summarized ${n} to fit the window.`
-        : kind === "partial"
-          ? `Context trimmed: compacted ${n} (partial summary — summarizer degraded).`
-          : `Context trimmed: dropped ${n}.`;
+    const text =
+      kind === "local"
+        ? `Context trimmed: compacted ${n} locally.`
+        : kind === "summarized"
+          ? `Context trimmed: summarized ${n} to fit the window.`
+          : kind === "partial"
+            ? `Context trimmed: compacted ${n} (partial summary — summarizer degraded).`
+            : `Context trimmed: dropped ${n}.`;
     this.opts.log.append({ sessionId, type: "notice", payload: { text, level: "warn" } });
   }
 
@@ -1990,14 +1983,12 @@ export class AgentRuntime {
     // not re-evict; a large final tool result appended since then can still legitimately
     // trigger one more eviction + notice, which is correct.
     const messages = assembleContext
-      ? await this.assembleMessages(
+      ? this.assembleMessages(
           sessionId,
           history,
           systemPrompt,
-          provider,
           decision.choice.model,
           decision.choice.provider,
-          abortSignal,
         )
       : [...(systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : []), ...history];
     try {
@@ -2754,10 +2745,16 @@ export class AgentRuntime {
       let budgetWarned = false;
       let progressEpochAtBudgetBoundary = 0;
       let noProgressStop = false;
+      let repeatedInspectionStop = 0;
+      const loopGuardConfig = this.opts.loopGuard?.();
+      const inspectionGuard =
+        loopGuardConfig?.enabled && !planNow && !codeInvestigation && turnRetrievalKind === null
+          ? new RepeatedInspectionGuard(loopGuardConfig, projectDir)
+          : null;
       let repeatedProbeStop = 0;
       let repeatedProbeAdvice = "";
       const repeatedProbeGuard = new RepeatedProbeGuard(
-        Math.max(8, (this.opts.loopGuard?.().noProgressThreshold ?? 4) * 2),
+        Math.max(8, (loopGuardConfig?.noProgressThreshold ?? 4) * 2),
       );
       let noProgressGraceUsed = false;
       let thrashStop = false;
@@ -2786,7 +2783,7 @@ export class AgentRuntime {
       const thrashRepeats =
         source === "orchestration-worker"
           ? (this.opts.workerThrashRepeats?.() ?? 0)
-          : (this.opts.loopGuard?.().cmdFailAbort ?? 0);
+          : (loopGuardConfig?.cmdFailAbort ?? 0);
       const protectExisting =
         source === "orchestration-worker" && (this.opts.protectExistingFiles?.() ?? false);
       const guardPendingScope =
@@ -2906,14 +2903,12 @@ export class AgentRuntime {
           let decision = router.select(routeContext);
           let choice = decision.choice;
           let provider = providers.get(choice.provider);
-          let messages = await this.assembleMessages(
+          let messages = this.assembleMessages(
             sessionId,
             history,
             systemPrompt,
-            provider,
             choice.model,
             choice.provider,
-            abortSignal,
             toolSchemaTokens,
           );
           const contextCfg = this.opts.context?.() ?? DEFAULT_CONTEXT;
@@ -2944,14 +2939,12 @@ export class AgentRuntime {
           if (routeChanged) {
             choice = decision.choice;
             provider = providers.get(choice.provider);
-            messages = await this.assembleMessages(
+            messages = this.assembleMessages(
               sessionId,
               history,
               systemPrompt,
-              provider,
               choice.model,
               choice.provider,
-              abortSignal,
               toolSchemaTokens,
             );
           }
@@ -2984,14 +2977,12 @@ export class AgentRuntime {
             toolSchemaTokens = estimateTokens(JSON.stringify(toolSchemas));
             activeToolSchemas =
               convergenceFinalRequested || artifactFinalSynthesisRequested ? [] : toolSchemas;
-            messages = await this.assembleMessages(
+            messages = this.assembleMessages(
               sessionId,
               history,
               systemPrompt,
-              provider,
               choice.model,
               choice.provider,
-              abortSignal,
               toolSchemaTokens,
             );
           }
@@ -3186,14 +3177,12 @@ export class AgentRuntime {
                   decision = strongerRecovery;
                   choice = decision.choice;
                   provider = providers.get(choice.provider);
-                  messages = await this.assembleMessages(
+                  messages = this.assembleMessages(
                     sessionId,
                     history,
                     systemPrompt,
-                    provider,
                     choice.model,
                     choice.provider,
-                    abortSignal,
                     toolSchemaTokens,
                   );
                   retryMessages = [...messages, retryMessages.at(-1)!];
@@ -4785,6 +4774,7 @@ export class AgentRuntime {
                   permission: { decision },
                 });
           renderRecovery.observe(call.name, result);
+          if (!completionAuditRequested) inspectionGuard?.observe(call, result);
           if (result.verificationBlocked)
             result.errorMessage = `${result.errorMessage}\n${renderRecovery.result().errorMessage}`;
           if (completionAuditRequested && result.ok && !cachedVerification) {
@@ -5600,6 +5590,22 @@ export class AgentRuntime {
 
         if (thrashStop || hiddenStop || repeatedProbeStop > 0) break;
 
+        const inspectionLoop = !completionAuditRequested ? inspectionGuard?.finishRound() : null;
+        if (inspectionLoop?.kind === "stop") {
+          repeatedInspectionStop = inspectionLoop.count;
+          break;
+        }
+        if (inspectionLoop?.kind === "warn" && lastToolEntry) {
+          const message =
+            "Repeated inspections are returning evidence already gathered this turn. Use it to make the requested change or report your findings. Run a focused check only if it resolves a specific remaining question.";
+          lastToolEntry.content += `\n\n<loop-warning>\n${message}\n</loop-warning>`;
+          log.append({
+            sessionId,
+            type: "notice",
+            payload: { text: message, level: "warn", kind: "inspection_loop_warning" },
+          });
+        }
+
         if (workerNoProgress > 0 && tokensSinceLastEdit >= workerNoProgress) {
           if (!noProgressGraceUsed) {
             noProgressGraceUsed = true;
@@ -5759,11 +5765,12 @@ export class AgentRuntime {
             payload: { text: note, stoppedReason: "no_progress" },
           });
           assistantText = note;
-        } else if (repeatedProbeStop > 0) {
+        } else if (repeatedInspectionStop > 0 || repeatedProbeStop > 0) {
           stoppedReason = "no_progress";
           const note =
-            `Stopped: ${repeatedProbeStop} numbered diagnostic probes returned the same result without an intervening change. Existing work is preserved. ` +
-            `Suggested fix: ${repeatedProbeAdvice}`;
+            repeatedInspectionStop > 0
+              ? `Stopped: at least ${repeatedInspectionStop} inspections repeated evidence, and the loop continued after a warning. Existing work is preserved. Continue from the evidence already gathered and make one targeted change, or identify the specific blocker.`
+              : `Stopped: ${repeatedProbeStop} numbered diagnostic probes returned the same result without an intervening change. Existing work is preserved. Suggested fix: ${repeatedProbeAdvice}`;
           history.push({ role: "assistant", content: note });
           log.append({
             sessionId,

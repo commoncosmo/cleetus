@@ -36,6 +36,28 @@ describe("retrieval efficiency", () => {
     expect(retrievalEfficiencyReminder("Update the README with usage examples")).toBe("");
   });
 
+  it("keeps repository inspections that mention JSON out of data-artifact guidance", () => {
+    for (const prompt of [
+      "Read package.json and report which version is in package.json.",
+      "Read-only test. Wait for the results after each group and report that both ran.\nhead -10 scwrote-site/package.json\nsed -n '1,10p' scwrote-site/package.json",
+      "Inspect package.json and report which command to run to generate CSV.",
+    ]) {
+      expect(retrievalEfficiencyKind(prompt)).toBeNull();
+      expect(retrievalEfficiencyReminder(prompt)).toBe("");
+    }
+  });
+
+  it("recognizes requests for explicit data output", () => {
+    for (const prompt of [
+      "Create a JSON file with the results.",
+      "Save those results as a json file.",
+      "Read package.json and export its dependencies as CSV.",
+      "Fetch the forecast and save it to `forecast data.json`.",
+    ]) {
+      expect(retrievalEfficiencyKind(prompt)).toBe("data_artifact");
+    }
+  });
+
   it("treats an empty search as retrieval failure and adds a provenance correction", () => {
     const empty = { ok: true as const, output: "(no results)" };
     expect(retrievalToolMadeProgress("retrieval", "web_search", empty)).toBe(false);
