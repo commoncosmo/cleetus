@@ -189,6 +189,7 @@ import {
   missingVerificationEvidence,
   observedTodoPhaseTransition,
   seededTodoContract,
+  todoMatchesEditedPath,
   todoTransitionSatisfied,
 } from "./todo-progress";
 import { renderTodoReminder } from "./todo-reminder";
@@ -2717,6 +2718,7 @@ export class AgentRuntime {
         priorTodos: TodoItem[];
         from: number;
         to: number;
+        observedInLoop: number;
       } | null = null;
       let completionEvidenceWarningEmitted = false;
       let smokeAttempted = false;
@@ -4111,6 +4113,34 @@ export class AgentRuntime {
             resolvedCallIds.add(call.id);
             continue;
           }
+          // Give the model one round to reconcile the inferred boundary. Keep the original
+          // batch, read-only inspection, and edits to the active item's files available.
+          if (
+            trackerPhaseReminder?.observedInLoop === loop - 1 &&
+            call.name !== "todo_write" &&
+            ((call.name !== "bash" && isMutating(tool)) ||
+              verificationCommandKey(call.name, call.args))
+          ) {
+            const from = trackerPhaseReminder.priorTodos[trackerPhaseReminder.from]!;
+            const to = trackerPhaseReminder.priorTodos[trackerPhaseReminder.to]!;
+            const path = (call.args as { path?: unknown } | null)?.path;
+            if (typeof path !== "string" || !todoMatchesEditedPath(from.content, path)) {
+              const content = `Tracker checkpoint: recent work may belong to "${to.content}" while "${from.content}" is still in progress. Update the full checklist with todo_write if the active step changed. If it is still accurate, retry the work with that item active.`;
+              history.push({ role: "tool", toolCallId: call.id, content });
+              log.append({
+                sessionId,
+                type: "notice",
+                payload: {
+                  kind: "todo_phase_checkpoint",
+                  level: "info",
+                  visibility: "verbose",
+                  text: `Tracker checkpoint: deferred ${call.name} for one round to review "${from.content}" and "${to.content}".`,
+                },
+              });
+              resolvedCallIds.add(call.id);
+              continue;
+            }
+          }
           if (call.name === "todo_write") {
             const proposed = (call.args as { todos?: unknown } | null)?.todos;
             const proposedTodos = Array.isArray(proposed) ? (proposed as TodoItem[]) : [];
@@ -5072,22 +5102,30 @@ export class AgentRuntime {
             }
           }
           const currentTodos = this.latestTodosBySession.get(sessionId) ?? [];
+          const phaseVerification = verificationKey
+            ? verificationResults.get(verificationKey)
+            : undefined;
           const phaseTransition: { from: number; to: number } | null =
-            result.ok && call.name !== "todo_write" && trackerPhaseReminder === null
+            result.ok && !cachedSetupAction && !cachedVerification && trackerPhaseReminder === null
               ? observedTodoPhaseTransition({
                   todos: currentTodos,
                   tool: call.name,
                   args: call.args,
-                  diffPath: result.diff?.path,
+                  diffPath:
+                    result.diff && (result.diff.created || result.diff.before !== result.diff.after)
+                      ? result.diff.path
+                      : undefined,
                   fullVerification:
-                    verificationKey !== null &&
-                    verificationResults.get(verificationKey)?.scope === "full",
+                    phaseVerification?.ok &&
+                    !phaseVerification.baseline &&
+                    phaseVerification.scope === "full",
                 })
               : null;
           if (phaseTransition) {
             trackerPhaseReminder = {
               priorTodos: currentTodos.map((todo) => ({ ...todo })),
               ...phaseTransition,
+              observedInLoop: loop,
             };
             log.append({
               sessionId,
@@ -5095,6 +5133,7 @@ export class AgentRuntime {
               payload: {
                 text: `tracker checkpoint: observed activity for "${currentTodos[phaseTransition.to]!.content}" while "${currentTodos[phaseTransition.from]!.content}" remained active`,
                 level: "info",
+                visibility: "verbose",
                 kind: "todo_phase_transition",
               },
             });
@@ -5108,7 +5147,7 @@ export class AgentRuntime {
           if (phaseTransition) {
             const from = currentTodos[phaseTransition.from]!;
             const to = currentTodos[phaseTransition.to]!;
-            const checkpoint = `TRACKER REMINDER: This successful activity appears to belong to the later named step "${to.content}", while "${from.content}" is still in_progress. Reconcile the full list with todo_write when appropriate, but continue useful work; this observation alone is not evidence that either step is complete.`;
+            const checkpoint = `TRACKER REMINDER: This activity may belong to "${to.content}" while "${from.content}" is still in progress. If the active step changed, update the full list with todo_write before continuing. Keep the current item active if it still needs work, and mark items complete only when supported by evidence.`;
             baseContent = baseContent ? `${baseContent}\n\n${checkpoint}` : checkpoint;
           }
           if (artifactFidelityFeedback) {

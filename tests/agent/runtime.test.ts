@@ -21,12 +21,14 @@ import { SessionHistoryStore } from "../../src/agent/session-history";
 import { DEFAULT_CONTEXT } from "../../src/config/context";
 import { DEFAULT_LOOP_GUARD } from "../../src/config/loop-guard";
 import { EventLog } from "../../src/events/log";
+import { isEventVisible } from "../../src/events/types";
 import { recoverToolCalls } from "../../src/providers/families";
 import { ProviderRegistry } from "../../src/providers/registry";
 import type { ChatOptions, Provider, StreamEvent } from "../../src/providers/types";
 import { NoneSandbox } from "../../src/sandbox/none";
 import { BashTool } from "../../src/tools/bash";
 import { ToolDispatcher } from "../../src/tools/dispatcher";
+import { ReadFileTool } from "../../src/tools/read-file";
 import { ToolRegistry } from "../../src/tools/registry";
 import { SaveFetchedJsonTool } from "../../src/tools/save-fetched-json";
 import { TodoListWriteTool } from "../../src/tools/todo-list";
@@ -3160,8 +3162,9 @@ describe("AgentRuntime", () => {
     ).toHaveLength(1);
   });
 
-  it("advises a tracker update without blocking useful later work", async () => {
+  it("pauses new work for one round to reconcile a tracker transition", async () => {
     tools.register(new WriteFileTool());
+    tools.register(new ReadFileTool());
     tools.register(new TodoWriteTool());
     providers.register(
       "lm",
@@ -3181,14 +3184,38 @@ describe("AgentRuntime", () => {
           {
             type: "tool-call",
             call: {
+              id: "config-read",
+              name: "read_file",
+              args: { path: "src/config.ts" },
+            },
+          },
+          {
+            type: "tool-call",
+            call: {
               id: "premature-ollama-write",
               name: "write_file",
               args: { path: "src/ollama.ts", content: "export const ollama = {};\n" },
             },
           },
+          {
+            type: "tool-call",
+            call: {
+              id: "active-scaffold-write",
+              name: "write_file",
+              args: { path: ".gitignore", content: "node_modules/\n" },
+            },
+          },
           { type: "finish", reason: "tool-calls" },
         ],
         [
+          {
+            type: "tool-call",
+            call: {
+              id: "scaffold-retry",
+              name: "write_file",
+              args: { path: "README.md", content: "Scaffold notes\n" },
+            },
+          },
           {
             type: "tool-call",
             call: {
@@ -3206,7 +3233,35 @@ describe("AgentRuntime", () => {
           { type: "finish", reason: "tool-calls" },
         ],
         [
-          { type: "text-delta", text: "The config step is active; later work remains." },
+          {
+            type: "tool-call",
+            call: {
+              id: "ollama-after-checkpoint",
+              name: "write_file",
+              args: { path: "src/ollama.ts", content: "export const ollama = {};\n" },
+            },
+          },
+          { type: "finish", reason: "tool-calls" },
+        ],
+        [
+          {
+            type: "tool-call",
+            call: {
+              id: "ollama-todo",
+              name: "todo_write",
+              args: {
+                todos: [
+                  { content: "— Scaffolding", status: "completed" },
+                  { content: "— Config Module (`src/config.ts`)", status: "completed" },
+                  { content: "— Ollama Module (`src/ollama.ts`)", status: "in_progress" },
+                ],
+              },
+            },
+          },
+          { type: "finish", reason: "tool-calls" },
+        ],
+        [
+          { type: "text-delta", text: "The Ollama step is active; later work remains." },
           { type: "finish", reason: "stop" },
         ],
       ]),
@@ -3229,7 +3284,7 @@ describe("AgentRuntime", () => {
         {
           role: "assistant",
           content:
-            "# Plan\n\n## Step 1 — Scaffolding\n\n## Step 2 — Config Module (`src/config.ts`)\n\n## Step 3 — Ollama Module (`src/ollama.ts`)",
+            "# Plan\n\n## Step 1 — Scaffolding (`.gitignore`)\n\n## Step 2 — Config Module (`src/config.ts`)\n\n## Step 3 — Ollama Module (`src/ollama.ts`)",
         },
       ],
       [],
@@ -3239,30 +3294,38 @@ describe("AgentRuntime", () => {
 
     expect(await Bun.file(join(dir, "src/config.ts")).exists()).toBe(true);
     expect(await Bun.file(join(dir, "src/ollama.ts")).exists()).toBe(true);
-    expect(runtime.getSessionTodos(session.id)[1]?.status).toBe("in_progress");
+    expect(runtime.getSessionTodos(session.id)[2]?.status).toBe("in_progress");
     expect(
       runtime
         .getMessages(session.id)
         .some((message) => message.role === "tool" && message.content.includes("TRACKER REMINDER")),
     ).toBe(true);
-    expect(
-      log
-        .query(session.id)
-        .filter(
-          (event) =>
-            event.type === "notice" &&
-            (event.payload as { kind?: string }).kind === "todo_phase_transition",
+    const events = log.query(session.id);
+    const finishedCalls = events
+      .filter((event) => event.type === "tool_call_end")
+      .map((event) => (event.payload as { call: { id: string } }).call.id);
+    expect(finishedCalls).toContain("config-read");
+    expect(finishedCalls).toContain("active-scaffold-write");
+    expect(finishedCalls.indexOf("active-scaffold-write")).toBeLessThan(
+      finishedCalls.indexOf("config-todo"),
+    );
+    expect(finishedCalls).toContain("scaffold-retry");
+    expect(finishedCalls).not.toContain("premature-ollama-write");
+    const phaseNotices = events.filter(
+      (event) =>
+        event.type === "notice" &&
+        ["todo_phase_transition", "todo_phase_checkpoint"].includes(
+          (event.payload as { kind?: string }).kind ?? "",
         ),
-    ).toHaveLength(1);
+    );
+    expect(phaseNotices.map((event) => (event.payload as { kind: string }).kind)).toEqual([
+      "todo_phase_transition",
+      "todo_phase_checkpoint",
+      "todo_phase_transition",
+    ]);
     expect(
-      log
-        .query(session.id)
-        .some(
-          (event) =>
-            event.type === "notice" &&
-            (event.payload as { kind?: string }).kind === "todo_phase_checkpoint",
-        ),
-    ).toBe(false);
+      phaseNotices.every((event) => !isEventVisible(event) && isEventVisible(event, true)),
+    ).toBe(true);
   });
 
   it("rejects an unsupported bulk-complete update for a seeded plan", async () => {

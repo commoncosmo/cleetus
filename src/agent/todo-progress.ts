@@ -132,19 +132,106 @@ function todoPathAnchors(content: string): string[] {
     const path = cleanInline(match[1]!);
     if (looksLikeProjectPath(path)) anchors.add(path);
   }
+  for (const match of content.matchAll(/(?<![\w./])\.[a-z][\w.-]*/gi)) {
+    anchors.add(cleanInline(match[0]));
+  }
   return [...anchors];
 }
 
-function activityText(tool: string, args: unknown, diffPath?: string): string {
-  const record = (args ?? {}) as Record<string, unknown>;
-  return [tool, record.path, record.cwd, record.command, diffPath]
-    .filter((value): value is string => typeof value === "string")
-    .join("\n")
-    .replaceAll("\\", "/");
+const TODO_SEMANTIC_STOP_WORDS = new Set([
+  "add",
+  "and",
+  "build",
+  "change",
+  "commit",
+  "component",
+  "components",
+  "configure",
+  "create",
+  "css",
+  "custom",
+  "file",
+  "files",
+  "first",
+  "implement",
+  "implementation",
+  "module",
+  "page",
+  "project",
+  "section",
+  "sections",
+  "setup",
+  "shared",
+  "step",
+  "update",
+  "wire",
+  "with",
+  "write",
+]);
+
+function wordTokens(value: string): string[] {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
 }
 
-/** Find a later, explicitly anchored todo whose named path is present in successful tool
- * activity. A full verification command may also enter a later verification-labelled step.
+/** Distinctive names let ordinary model-authored todos participate in phase detection even when
+ * they omit literal paths. Generic work words are deliberately excluded so a random source write
+ * cannot advance a vague item such as "Build shared components". */
+function todoSemanticAnchors(content: string): string[] {
+  const anchors = new Set<string>();
+  for (const token of wordTokens(content)) {
+    if (token.length >= 4 && !TODO_SEMANTIC_STOP_WORDS.has(token)) anchors.add(token);
+  }
+  for (const match of content.matchAll(/\b[A-Z][A-Za-z0-9]*\b/g)) {
+    for (const token of wordTokens(match[0])) {
+      if (token.length >= 3 && !TODO_SEMANTIC_STOP_WORDS.has(token)) anchors.add(token);
+    }
+  }
+  return [...anchors];
+}
+
+/** Match named files and symbols against the file actually changed. */
+export function todoMatchesEditedPath(content: string, path: string): boolean {
+  const normalizedPath = path.replaceAll("\\", "/");
+  const namedPaths = todoPathAnchors(content);
+  if (namedPaths.length > 0) {
+    const sourcePath = normalizedPath.replace(/\.test(?=\.[^/.]+$)/, "");
+    return namedPaths.some(
+      (anchor) =>
+        normalizedPath === anchor ||
+        normalizedPath.endsWith(`/${anchor}`) ||
+        sourcePath === anchor ||
+        sourcePath.endsWith(`/${anchor}`),
+    );
+  }
+  const file = basename(normalizedPath);
+  const tokens = new Set(wordTokens(file.replace(/\.[^.]+$/, "")));
+  return todoSemanticAnchors(content).some((anchor) => tokens.has(anchor));
+}
+
+function todoMatchesDependencySetup(content: string, tool: string, args: unknown): boolean {
+  const command = (args as { command?: unknown } | null)?.command;
+  if (tool !== "bash" || typeof command !== "string") return false;
+  const packages = command.match(
+    /^\s*(?:cd\s+[^;&|\n]+\s+&&\s*)?(?:bun|npm|pnpm|yarn)\s+(?:add|install|i)\s+([^;&|<>\n]+)/i,
+  )?.[1];
+  if (!packages) return false;
+  const packageTokens = new Set(wordTokens(packages));
+  const words = wordTokens(content);
+  return todoSemanticAnchors(content).some(
+    (anchor) =>
+      packageTokens.has(anchor) ||
+      words.some(
+        (word, i) => word === anchor && words[i + 1] && packageTokens.has(anchor + words[i + 1]),
+      ),
+  );
+}
+
+/** Find the next todo when its named path or distinctive semantic anchor appears in successful
+ * tool activity. A full verification command may also enter a later verification-labelled step.
  * This reports a phase boundary; it never claims that the preceding task is complete. */
 export function observedTodoPhaseTransition(input: {
   todos: TodoItem[];
@@ -155,7 +242,9 @@ export function observedTodoPhaseTransition(input: {
 }): { from: number; to: number } | null {
   const from = input.todos.findIndex((todo) => todo.status === "in_progress");
   if (from < 0) return null;
-  const activity = activityText(input.tool, input.args, input.diffPath);
+  const diffPath = input.diffPath;
+  const active = input.todos[from]!;
+  if (diffPath && todoMatchesEditedPath(active.content, diffPath)) return null;
   for (let to = from + 1; to < input.todos.length; to++) {
     const todo = input.todos[to]!;
     if (todo.status === "completed") continue;
@@ -166,16 +255,9 @@ export function observedTodoPhaseTransition(input: {
       .slice(from + 1, to)
       .every((intervening) => intervening.status === "completed");
     if (!interveningComplete) continue;
-    const anchors = todoPathAnchors(todo.content);
     if (
-      anchors.some((anchor) => {
-        const stem = anchor.replace(/\.[^/.]+$/, "");
-        return (
-          activity.includes(anchor) ||
-          (stem.length > 3 && activity.includes(stem)) ||
-          (anchor.includes("/") && activity.includes(basename(anchor)))
-        );
-      })
+      (diffPath && todoMatchesEditedPath(todo.content, diffPath)) ||
+      todoMatchesDependencySetup(todo.content, input.tool, input.args)
     ) {
       return { from, to };
     }

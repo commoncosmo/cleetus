@@ -154,6 +154,95 @@ describe("observed todo phase transitions", () => {
     ).toEqual({ from: 0, to: 1 });
   });
 
+  it("recognizes distinctive semantic names when todos do not contain paths", () => {
+    const websiteTodos: TodoItem[] = [
+      { content: "Scaffold Vite + React + TypeScript project", status: "in_progress" },
+      { content: "Add Tailwind CSS v4 and custom terminal theme CSS", status: "pending" },
+      {
+        content: "Build shared components (TerminalWindow, Keycap, section primitives)",
+        status: "pending",
+      },
+    ];
+
+    expect(
+      observedTodoPhaseTransition({
+        todos: websiteTodos,
+        tool: "bash",
+        args: { command: "bun add -D tailwindcss @tailwindcss/vite" },
+      }),
+    ).toEqual({ from: 0, to: 1 });
+
+    const tailwindActive = websiteTodos.map((todo, index) => ({
+      ...todo,
+      status:
+        index === 0 ? ("completed" as const) : index === 1 ? ("in_progress" as const) : todo.status,
+    }));
+    expect(
+      observedTodoPhaseTransition({
+        todos: tailwindActive,
+        tool: "write_file",
+        args: { path: "src/components/Keycap.tsx" },
+        diffPath: "/tmp/project/src/components/Keycap.tsx",
+      }),
+    ).toEqual({ from: 1, to: 2 });
+  });
+
+  it("does not use generic implementation words as semantic phase evidence", () => {
+    const genericTodos: TodoItem[] = [
+      { content: "Build the application", status: "in_progress" },
+      { content: "Build shared components", status: "pending" },
+    ];
+    expect(
+      observedTodoPhaseTransition({
+        todos: genericTodos,
+        tool: "write_file",
+        args: { path: "src/App.tsx" },
+        diffPath: "/tmp/project/src/App.tsx",
+      }),
+    ).toBeNull();
+  });
+
+  it("distinguishes the sct1 app write and entry-point reads from the gitignore step", () => {
+    const todos: TodoItem[] = [
+      { content: "Build the product site (hero, features, 3-pane mockup)", status: "in_progress" },
+      { content: "Write .gitignore before first commit", status: "pending" },
+      { content: "Verify entry points (main.tsx, index.html) and build", status: "pending" },
+    ];
+    expect(
+      observedTodoPhaseTransition({
+        todos,
+        tool: "write_file",
+        args: { path: "src/App.tsx" },
+        diffPath: "/tmp/project/src/App.tsx",
+      }),
+    ).toBeNull();
+    expect(
+      observedTodoPhaseTransition({
+        todos,
+        tool: "write_file",
+        args: { path: ".gitignore" },
+        diffPath: "/tmp/project/.gitignore",
+      }),
+    ).toEqual({ from: 0, to: 1 });
+
+    todos[0]!.status = "completed";
+    todos[1]!.status = "in_progress";
+    expect(
+      observedTodoPhaseTransition({
+        todos,
+        tool: "read_file",
+        args: { path: "src/main.tsx" },
+      }),
+    ).toBeNull();
+    expect(
+      observedTodoPhaseTransition({
+        todos,
+        tool: "bash",
+        args: { command: "cd /tmp/project && cat src/main.tsx index.html" },
+      }),
+    ).toBeNull();
+  });
+
   it("recognizes the final verification phase only for a full verifier", () => {
     const cliActive = TODOS.map((todo, index) => ({
       ...todo,
