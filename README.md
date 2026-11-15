@@ -246,7 +246,7 @@ embeddings are set).
 | Command | What it does |
 |---|---|
 | `/clear` | Clear conversation context (keeps the session id) |
-| `/compact` | Summarize the conversation so far to shrink the context window |
+| `/compact [instruction]` | Fold older history into a summary, with optional guidance on what to retain |
 | `/context` | Inspect the last request's served window, effective budget, reserves, and compaction thresholds |
 | `/sessions` | List project session IDs and mark the active one. Alias: `/session` |
 | `/rewind` | Undo a turn: restore files + conversation to a checkpoint |
@@ -540,6 +540,7 @@ context:
   trim_high_water: 0.85       # trim when the live tail exceeds this fraction of budget
   trim_low_water: 0.55        # trim down to this fraction (must be < trim_high_water)
   max_summary_input_tokens: 6000    # chunk size for explicit /compact summaries
+  summary_timeout_ms: 30000         # total time allowed for model calls during /compact
   max_deep_tool_result_chars: 2000   # deep-slim large tool results when trimming
   max_live_tool_result_chars: 12000  # cap live-turn tool results (larger than the deep cap)
   warn_tokens: null           # null derives threshold: 70% of served window, or 50000 if unknown
@@ -784,29 +785,36 @@ recommendation and explicitly labels hybrid staging unavailable. You can still f
 | `budget_tokens` | `24000` | Fallback budget when the server's real window is unknown; clamped to `16384` and `max_budget_tokens`. |
 | `max_budget_tokens` | `32000` | Ceiling on the history budget when the served window is known (scales big-window models up from `budget_tokens` while bounding per-call latency). |
 | `response_reserve_tokens` | `2048` | Tokens reserved for the reply (`0` = none). |
-| `summarize` | `true` | Keep a local digest on automatic trims. Explicit `/compact` uses the active model. |
+| `summarize` | `true` | Keep a digest of trimmed history. Set to `false` to omit the trimmed history from the model prompt without a digest. |
 | `trim_high_water` | `0.85` | Trim when the live tail exceeds this fraction of budget. |
 | `trim_low_water` | `0.55` | Trim down to this fraction (must be `< trim_high_water`). |
-| `max_summary_input_tokens` | `6000` | Cap on history fed to the summarizer. |
+| `max_summary_input_tokens` | `6000` | Target history tokens per summary chunk for explicit `/compact`. |
+| `summary_timeout_ms` | `30000` | Total time allowed for `/compact` model calls before using local evidence. |
 | `max_deep_tool_result_chars` | `2000` | Deep-slim large tool results when trimming. |
 | `max_live_tool_result_chars` | `12000` | Cap for live-turn tool results (larger than the deep cap). |
 | `warn_tokens` | `null` | Warn when the prompt exceeds N tokens; `null` derives 70% of the served window, or 50000 when unknown. |
 
-The base budget is the smaller of the detected served window and `max_budget_tokens`. Cleetus
-then keeps a 10% safety margin and subtracts the response reserve, system prompt, tool schemas,
-digest, and live-request reserve. Auto-compaction compares the remaining history against the
-high-water mark using the bounded tool results actually included in the request. Original tool
-results remain in session history. A large MCP response alone does not trigger delegation or
-compaction if its bounded content fits. `/context` shows measurements from the last assembled
-request, including the routed provider/model, so it can explain the difference between a large
-server window and a smaller effective budget. It is available in both the terminal and ACP.
+The terminal and ACP share the same compaction behavior. The base budget is the smaller of the
+detected served window and `max_budget_tokens`. Cleetus keeps a 10% safety margin and subtracts
+the response reserve, system prompt, tool schemas, digest, and live-request reserve. `/context`
+shows these measurements for the last assembled request, including the routed provider and model.
 
-Compaction retains bounded recovery evidence for the user request, documentation URLs, edited
-paths, and latest verification outcomes, even if the model summary fails. After two degraded
-summaries from the same provider/model, the next three compactions use the fast extractive
-fallback before retrying the summarizer. `/compact` retries immediately. Cached documentation
-remains available after compaction; reread a section instead of downloading the manual again.
-Cooldown notices identify the deliberate fast fallback separately from a failed summary.
+Automatic compaction folds older messages when the history tail crosses the high-water mark.
+It counts the bounded tool output that the model will receive. A large MCP response alone does
+not trigger delegation or compaction if its bounded content fits. With `context.summarize`
+enabled, Cleetus builds a local digest of earlier requests, edits, documentation URLs, and
+verification outcomes. This takes no extra model call, including after resuming a long session.
+The active request and recent context stay in the prompt.
+
+Run `/compact [instruction]` in the terminal or from an ACP client that exposes slash commands
+to fold additional older history on demand. With `context.summarize` enabled, it asks the
+active model to summarize the eligible messages. The optional instruction guides what to retain.
+If a summary fails or times out, Cleetus keeps local excerpts and recovery evidence. If there
+is no additional history to fold, `/compact` returns without a model call.
+
+Both forms of compaction preserve the original messages and tool results in session history.
+Cached documentation remains available after compaction, so you can reread a section from the cache.
+
 During implementation, a bounded checkpoint preserves confirmed writes and the latest check
 outcome. Mixed shell/document inspection and repeated reads of already-covered documentation
 trigger a course correction; a successful empty search is counted as unproductive work.
