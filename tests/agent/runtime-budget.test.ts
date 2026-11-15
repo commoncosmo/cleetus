@@ -967,14 +967,11 @@ test("budget derives from the ROUTED model's window", async () => {
     }),
   });
 
-  // Three turns (~2000 tokens each, ~6000 tokens total) — comfortably over an 8192-derived
-  // budget's high-water (~4565 tokens: the newest turn alone is never trimmed, per
-  // computeRecentBoundary, so at least one turn of history must sit BEFORE the live turn for a
-  // trim to be possible at all) but nowhere near a 131072-capped-at-96000 budget's high-water
-  // (~71700 tokens). Pre-fix (budget sized from the nullary 131072 read) this never trims.
-  await runtime.runTurn("S", "x".repeat(8000));
-  await runtime.runTurn("S", "x".repeat(8000));
-  await runtime.runTurn("S", "x".repeat(8000));
+  // Three older turns (~6000 tokens) exceed the small routed window's history watermark
+  // after reserving the fourth request. They fit if we accidentally use the large window.
+  for (const marker of ["first", "second", "third", "fourth"]) {
+    await runtime.runTurn("S", `${marker} ${"x".repeat(8000)}`);
+  }
 
   expect(runtime.getContextBudget("S")).toMatchObject({
     provider: "p",

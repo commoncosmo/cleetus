@@ -9,16 +9,15 @@ export interface ContextConfig {
   maxBudgetTokens: number;
   /** Tokens held back from the budget for the model's response. */
   responseReserveTokens: number;
-  /** When false, evicted history is dropped without summarization (notice still fires). */
+  /** Keep a digest of evicted history. Automatic folds are local; /compact uses the model. */
   summarize: boolean;
   /** Fraction of budget that triggers a trim. */
   trimHighWater: number;
   /** Fraction of budget a trim reduces the tail to. */
   trimLowWater: number;
-  /** Slice size (tokens) above which the summarizer folds in sub-chunks. */
+  /** Slice size (tokens) above which /compact summarizes in sub-chunks. */
   maxSummaryInputTokens: number;
-  /** Per-call timeout (ms) for a summarizer chunk. On timeout the chunk falls back to the
-   *  deterministic extractive digest instead of blocking. */
+  /** Total time (ms) /compact allows for model summarization before relying on local evidence. */
   summaryTimeoutMs: number;
   /** Per-message cap (chars) for tool results in deep (pre-live) history. */
   maxDeepToolResultChars: number;

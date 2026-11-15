@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   LoopGuard,
+  RepeatedInspectionGuard,
   RepeatedProbeGuard,
   repeatedProbeRecoveryAdvice,
   signatureOf,
@@ -15,6 +16,70 @@ const todoCall = (titles: string[]) => ({
   args: { todos: titles.map((t) => ({ content: t, status: "pending" })) },
 });
 const readCall = (path: string) => ({ name: "read_file", args: { path } });
+
+test("different shell commands and numbered excerpts count as repeated inspection evidence", () => {
+  const guard = new RepeatedInspectionGuard({ ...cfg, noProgressThreshold: 2 }, "/project");
+  const lines = [
+    "export function alpha() {",
+    "  const message = 'long enough to keep';",
+    "  return message.toUpperCase();",
+    "  // preserve the casing contract",
+    "  // an unrelated line at the end",
+  ];
+  guard.observe(readCall("src/app.ts"), { ok: true, output: lines.join("\n") });
+  expect(guard.finishRound()).toBeNull();
+  const excerpt = lines
+    .slice(0, 4)
+    .map((line, i) => `${i + 1}: ${line}`)
+    .join("\n");
+  guard.observe(bashCall("cd src && cat -n app.ts | head -4"), { ok: true, output: excerpt });
+  guard.observe(bashCall("sed -n '1,4p' src/app.ts 2>/dev/null"), {
+    ok: true,
+    output: lines.slice(0, 4).join("\n"),
+  });
+  expect(guard.finishRound()).toEqual({ kind: "warn", count: 2 });
+  // A command that also writes is outside the inspection heuristic.
+  guard.observe(bashCall("cat src/app.ts | tee other.ts"), { ok: true, output: excerpt });
+  expect(guard.finishRound()).toBeNull();
+  guard.observe(bashCall("rg -n . src/app.ts | head -4"), { ok: true, output: excerpt });
+  guard.observe(bashCall("find src -name app.ts; head -4 src/app.ts"), {
+    ok: true,
+    output: excerpt,
+  });
+  expect(guard.finishRound()).toEqual({ kind: "stop", count: 4 });
+});
+
+test("fresh file contents and a confirmed edit preserve useful exploration", () => {
+  const guard = new RepeatedInspectionGuard({ ...cfg, noProgressThreshold: 2 }, "/project");
+  const output = "export const config = {};";
+  for (let i = 0; i < 30; i++) {
+    guard.observe(readCall(`config-${i}.ts`), { ok: true, output });
+    expect(guard.finishRound()).toBeNull();
+  }
+  const read = readCall("src/app.ts");
+  for (let i = 0; i < 3; i++) guard.observe(read, { ok: true, output });
+  expect(guard.finishRound()).toEqual({ kind: "warn", count: 2 });
+  guard.observe(editCall("src/app.ts"), {
+    ok: true,
+    diff: { path: "src/app.ts", before: output, after: "export const config = { enabled: true };" },
+  });
+  for (let i = 0; i < 2; i++) guard.observe(read, { ok: true, output });
+  expect(guard.finishRound()).toBeNull();
+});
+
+test("mixed inspection batches warn before stopping and honor warn-only configuration", () => {
+  for (const blockThreshold of [0, 2]) {
+    const guard = new RepeatedInspectionGuard(
+      { ...cfg, noProgressThreshold: 2, blockThreshold },
+      "/project",
+    );
+    const inspect = () => guard.observe(bashCall("ls -1"), { ok: true, output: "index.ts" });
+    for (let i = 0; i < 6; i++) inspect();
+    expect(guard.finishRound()).toEqual({ kind: "warn", count: 5 });
+    inspect();
+    expect(guard.finishRound()).toEqual(blockThreshold === 0 ? null : { kind: "stop", count: 6 });
+  }
+});
 
 test("numbered diagnostic probes warn, then stop only after a second unchanged stretch", () => {
   const guard = new RepeatedProbeGuard(8);

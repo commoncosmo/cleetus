@@ -12,12 +12,13 @@ export interface LoopGuardConfig {
   /** Calls to suppress re-warning a signature after it warns. */
   cooldown: number;
   /** Identical no-progress tool-call repeats within the window (any exit code) that trigger a
-   *  stall warning — catches re-listing, re-reading, and re-planning loops. */
+   *  stall warning. Also the warning threshold for repeated inspection evidence across a turn. */
   noProgressThreshold: number;
   /** Out-of-tree attempts within the window (any target) that trigger an escape warning. */
   escapeThreshold: number;
   /** Warnings on the same fail/stall signature after which the call is refused pre-dispatch
-   *  (not just warned). `0` disables blocking (warn-only). Any successful edit resets the counts. */
+   *  (not just warned). For mixed inspections, multiplies noProgressThreshold to set the
+   *  stop threshold. `0` disables blocking/stopping (warn-only). */
   blockThreshold: number;
   /** Hidden-tool rejections within the window (any tool name) that trigger a warning; the
    *  runtime aborts the turn at 2x this count (WS5 N3). */

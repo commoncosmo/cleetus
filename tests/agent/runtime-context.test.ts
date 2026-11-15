@@ -105,6 +105,13 @@ function makeRuntime(
   });
 }
 
+const smallCompactingContext = {
+  budgetTokens: 600,
+  responseReserveTokens: 0,
+  trimHighWater: 0.75,
+  trimLowWater: 0.35,
+};
+
 describe("AgentRuntime context assembly", () => {
   for (const pages of [4, 8]) {
     it(`counts bounded MCP results for pressure and retention (${pages} pages)`, async () => {
@@ -169,6 +176,67 @@ describe("AgentRuntime context assembly", () => {
     });
   }
 
+  it("keeps tooling moving under the ACP trace's unknown-window schema pressure", async () => {
+    const requests: ChatOptions[] = [];
+    let summaries = 0;
+    const rounds = 24;
+    const tool: Tool = {
+      ...stubBash,
+      description: "schema ".repeat(4160),
+      run: async (args) => ({
+        ok: true,
+        output: `${(args as { command: string }).command}: ${"file contents ".repeat(55)}`,
+      }),
+    };
+    const provider: Provider = {
+      listModels: async () => [{ id: "m" }],
+      embed: async () => [0],
+      async *chat(request) {
+        if (request.messages[0]?.content === DIGEST_SYSTEM_PROMPT) {
+          summaries++;
+          yield { type: "text-delta", text: "historical summary ".repeat(300) };
+          yield { type: "finish", reason: "stop" };
+          return;
+        }
+        requests.push(request);
+        if (requests.length <= rounds) {
+          yield {
+            type: "tool-call",
+            call: {
+              id: `call-${requests.length}`,
+              name: tool.name,
+              args: { command: `read-${requests.length}` },
+            },
+          };
+          yield { type: "finish", reason: "tool-calls" };
+        } else {
+          yield { type: "text-delta", text: "Done." };
+          yield { type: "finish", reason: "stop" };
+        }
+      },
+    };
+    const runtime = makeRuntime(provider, undefined, [tool], rounds + 2, {
+      systemPrompt: () => "s".repeat(15_000),
+    });
+    const activeRequest = "Repair the site and verify the build.";
+    await runtime.runTurn("S", activeRequest);
+    const compactions = log.query("S").filter((event) => event.type === "compaction_end");
+    expect(compactions.length).toBeGreaterThan(1);
+    for (const event of compactions)
+      expect(event.payload).toMatchObject({ strategy: "extractive" });
+    expect(summaries).toBe(0);
+    expect(requests).toHaveLength(rounds + 1);
+    const sent = requests.at(-1)!.messages;
+    expect(sent.filter((message) => message.content === activeRequest)).toHaveLength(1);
+    expect(sent.filter((message) => message.role === "tool").length).toBeGreaterThan(1);
+    expect(sent.at(-1)?.content).toStartWith(`read-${rounds}:`);
+    expect(runtime.getMessages("S").filter((message) => message.role === "tool")).toHaveLength(
+      rounds,
+    );
+    expect(runtime.getContextBudget("S")).toMatchObject({ baseTokens: 16384 });
+    expect(runtime.getContextBudget("S")!.budgetTokens).toBeGreaterThan(1000);
+  });
+
   it("fails locally before a provider call when fixed request overhead cannot fit the served window", async () => {
     const p = new CapturingProvider();
     const runtime = makeRuntime(p, undefined, undefined, 3, {
@@ -227,21 +295,16 @@ describe("AgentRuntime context assembly", () => {
     );
   });
 
-  it("on overflow: summarizes, sends [system, digest, live turn], keeps the user message, emits a notice", async () => {
+  it("on overflow: sends a local digest and the active request without a summarizer call", async () => {
     const p = new CapturingProvider();
-    // budgetTokens must be above MIN_BUDGET (512) so the floor doesn't swallow the limit.
-    // Use 600 and messages long enough to overflow it (~200 tokens each = ~800 chars).
-    const longA = "a".repeat(820); // ceil(820/4)=205 tokens
-    const longB = "b".repeat(820); // 205 tokens
-    const longC = `third and final user instruction here please ${"c".repeat(780)}`; // ~207 tokens
-    const runtime = makeRuntime(p, {
-      budgetTokens: 600,
-      responseReserveTokens: 0,
-      summarize: true,
-    });
+    const longA = "a".repeat(820);
+    const longB = "b".repeat(820);
+    const longC = `third and final user instruction here please ${"c".repeat(780)}`;
+    const runtime = makeRuntime(p, smallCompactingContext);
     await runtime.runTurn("S", longA);
     await runtime.runTurn("S", longB);
     await runtime.runTurn("S", longC);
+    expect(p.calls).toHaveLength(3);
     const sent = p.calls.at(-1)!;
     expect(sent[0]!.role).toBe("system");
     expect(sent.some((m) => m.content.includes("Earlier in this session"))).toBe(true);
@@ -258,11 +321,7 @@ describe("AgentRuntime context assembly", () => {
     const longA = "a".repeat(820);
     const longB = "b".repeat(820);
     const longC = `third and final user instruction here please ${"c".repeat(780)}`;
-    const runtime = makeRuntime(p, {
-      budgetTokens: 600,
-      responseReserveTokens: 0,
-      summarize: true,
-    });
+    const runtime = makeRuntime(p, smallCompactingContext);
     await runtime.runTurn("S", longA);
     await runtime.runTurn("S", longB);
     await runtime.runTurn("S", longC);
@@ -294,12 +353,8 @@ describe("AgentRuntime context assembly", () => {
     const p = new CapturingProvider();
     const longA = "a".repeat(820);
     const longB = "b".repeat(820);
-    const longC = "c".repeat(820); // large live turn forces eviction of the older turns
-    const runtime = makeRuntime(p, {
-      budgetTokens: 600,
-      responseReserveTokens: 0,
-      summarize: false,
-    });
+    const longC = "c".repeat(820);
+    const runtime = makeRuntime(p, { ...smallCompactingContext, summarize: false });
     await runtime.runTurn("S", longA);
     await runtime.runTurn("S", longB);
     await runtime.runTurn("S", longC);
@@ -341,11 +396,7 @@ describe("AgentRuntime context assembly", () => {
     const longA = "a".repeat(820);
     const longB = "b".repeat(820);
     const longC = `third instruction here ${"c".repeat(800)}`;
-    const runtime = makeRuntime(p, {
-      budgetTokens: 600,
-      responseReserveTokens: 0,
-      summarize: true,
-    });
+    const runtime = makeRuntime(p, smallCompactingContext);
     // Saturate so a trim fires (the digest message appears in the prefix).
     await runtime.runTurn("S", longA);
     await runtime.runTurn("S", longB);
@@ -371,97 +422,76 @@ describe("AgentRuntime context assembly", () => {
     expect(secondDigest).toEqual(firstDigest);
   });
 
-  it("no trim while the tail alone stays under budget*trimHighWater, trims once it exceeds it", async () => {
-    // `budget` already nets out the system prompt, digest, and response reserve (computeBudget),
-    // so it is the allowance for the history tail alone: the trigger compares the tail directly
-    // against budget*trimHighWater with no overhead added back.
-    // budget = floor(600*0.9) - 0 - estimateTokens("sys"=>1) - 0 = 540 - 1 = 539.
-    // high = 539 * 0.85 ≈ 458 tokens. One ~205-token turn stays well under; three ~205-token
-    // turns (~615 token tail) exceed it and trim.
-    const long = () => "x".repeat(820); // ceil(820/4)=205 tokens
+  it("only counts older messages against the watermark after reserving the active request", async () => {
+    const long = (marker: string) => `${marker} ${"x".repeat(820)}`;
 
-    // (a) Under the high-water mark: a single turn → no digest, no trim notice.
-    const pUnder = new CapturingProvider();
-    const under = makeRuntime(pUnder, {
-      budgetTokens: 600,
-      responseReserveTokens: 0,
-      summarize: true,
-    });
-    await under.runTurn("S", long());
-    const sentUnder = pUnder.calls.at(-1)!;
-    expect(sentUnder.some((m) => m.content.includes("Earlier in this session"))).toBe(false);
-    expect(
-      log
-        .query("S")
-        .some((e) => e.type === "notice" && /trimmed/i.test((e.payload as { text: string }).text)),
-    ).toBe(false);
+    const provider = new CapturingProvider();
+    const runtime = makeRuntime(provider, smallCompactingContext);
+    await runtime.runTurn("S", long("first"));
+    await runtime.runTurn("S", long("second"));
+    // One earlier turn fits below the 384-token high-water mark. Counting the active
+    // request again would push the second turn over it.
+    expect(log.query("S").some((event) => event.type === "compaction_start")).toBe(false);
+    expect(runtime.getContextBudget("S")?.tailTokens).toBeLessThan(250);
 
-    // (b) Once the tail alone exceeds the high-water mark, a trim fires.
-    const pOver = new CapturingProvider();
-    const over = makeRuntime(pOver, {
-      budgetTokens: 600,
-      responseReserveTokens: 0,
-      summarize: true,
-    });
-    await over.runTurn("T", long());
-    await over.runTurn("T", long());
-    await over.runTurn("T", long());
-    const sentOver = pOver.calls.at(-1)!;
-    expect(sentOver.some((m) => m.content.includes("Earlier in this session"))).toBe(true);
-    expect(
-      log
-        .query("T")
-        .some((e) => e.type === "notice" && /trimmed/i.test((e.payload as { text: string }).text)),
-    ).toBe(true);
+    await runtime.runTurn("S", long("third"));
+    expect(log.query("S").some((event) => event.type === "compaction_start")).toBe(true);
+    expect(provider.calls.at(-1)?.some((m) => m.content.includes("Earlier in this session"))).toBe(
+      true,
+    );
   });
 
-  // The capturing provider records summarizer calls too (they go through the same provider).
-  // A summarizer call is a 2-message array whose system content is DIGEST_SYSTEM_PROMPT; the
-  // user message is the rendered slice (renderSliceForSummary) of the folded messages.
-  function summarizerRequests(p: CapturingProvider): Message[][] {
-    return p.calls.filter((msgs) => msgs[0]?.content === DIGEST_SYSTEM_PROMPT);
-  }
-
-  it("a second trim folds ONLY the newly-frozen span, never re-folding from index 0", async () => {
+  it("locally compacts a restored Air-sized transcript before its first model call", async () => {
     const p = new CapturingProvider();
-    // budget = floor(600*0.9) - 1(sys) = 539; high ≈ 458 tokens. Each ~205-token turn that
-    // pushes the tail past ~458 triggers a trim of the older span down to low-water (~296).
-    const span = (marker: string) => `${marker} ${"z".repeat(800)}`; // ~201 tokens, marker visible
-    const runtime = makeRuntime(p, {
-      budgetTokens: 600,
-      responseReserveTokens: 0,
-      summarize: true,
+    const runtime = makeRuntime(p, undefined, undefined, 3, { modelContextLength: () => 262144 });
+    const historical: Message[] = [
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [{ id: "build", name: "run_tests", args: { check: "build" } }],
+      },
+      { role: "tool", toolCallId: "build", content: "src/main.ts: TS2307 missing import" },
+      ...Array.from(
+        { length: 1_350 },
+        (_, i): Message => ({
+          role: i % 2 === 0 ? "user" : "assistant",
+          content: `Historical message ${i}: ${"x".repeat(1000)}`,
+        }),
+      ),
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [{ id: "recent", name: "read_file", args: { path: "package.json" } }],
+      },
+      { role: "tool", toolCallId: "recent", content: "Recent manifest contents" },
+    ];
+    runtime.loadSession("S", historical, []);
+    const request = "Inspect package.json using the read-only commands.";
+    await runtime.runTurn("S", request);
+    await runtime.runTurn("S", "Thanks.");
+
+    expect(p.calls).toHaveLength(2);
+    expect(p.calls[0]!.filter((message) => message.content === request)).toHaveLength(1);
+    expect(p.calls[0]!.some((message) => message.content.includes("TS2307 missing import"))).toBe(
+      true,
+    );
+    expect(
+      p.calls[0]!.some((message) => message.content.startsWith("Historical message 1349:")),
+    ).toBe(true);
+    expect(runtime.getMessages("S").slice(0, historical.length)).toEqual(historical);
+    const events = log.query("S");
+    const compactions = events.filter((event) => event.type === "compaction_end");
+    expect(compactions).toHaveLength(1);
+    expect(compactions[0]!.payload).toMatchObject({
+      strategy: "extractive",
+      outcome: "summarized",
     });
-    // First crossing: turns carrying ALPHA accumulate, then a later turn trips the high-water
-    // mark and the ALPHA span is folded into the digest.
-    await runtime.runTurn("S", span("ALPHA-one"));
-    await runtime.runTurn("S", span("ALPHA-two"));
-    await runtime.runTurn("S", span("ALPHA-three"));
-    const afterFirst = summarizerRequests(p).length;
-    expect(afterFirst).toBeGreaterThanOrEqual(1);
-
-    // Second crossing: turns carrying BRAVO accumulate past the (already-advanced) boundary
-    // and a later turn trips the mark again, folding ONLY the BRAVO span.
-    await runtime.runTurn("S", span("BRAVO-one"));
-    await runtime.runTurn("S", span("BRAVO-two"));
-    await runtime.runTurn("S", span("BRAVO-three"));
-    const summarizers = summarizerRequests(p);
-    expect(summarizers.length).toBeGreaterThan(afterFirst);
-
-    // The FIRST summarizer folded the ALPHA span: its rendered slice mentions ALPHA, not BRAVO.
-    const firstSlice = summarizers[0]![1]!.content;
-    expect(firstSlice).toContain("ALPHA");
-    expect(firstSlice).not.toContain("BRAVO");
-
-    // The LAST summarizer folded only the newly-frozen span: BRAVO present, and the
-    // already-folded earliest ALPHA turns absent — proof the second trim folded
-    // [coveredThroughIndex, newBoundary) and never re-folded from index 0. (The boundary can now
-    // advance INTO the previous live turn, so a trailing ALPHA turn that was the live message
-    // during the first trim — and therefore not folded then — may legitimately appear here.)
-    const lastSlice = summarizers.at(-1)![1]!.content;
-    expect(lastSlice).toContain("BRAVO");
-    expect(lastSlice).not.toContain("ALPHA-one");
-    expect(lastSlice).not.toContain("ALPHA-two");
+    expect((compactions[0]!.payload as { messageCount: number }).messageCount).toBeGreaterThan(
+      1000,
+    );
+    expect(events.indexOf(compactions[0]!)).toBeLessThan(
+      events.findIndex((event) => event.type === "model_call_start"),
+    );
   });
 
   it("warns about large context at most once per session, re-arming after a trim", async () => {
@@ -566,11 +596,7 @@ describe("AgentRuntime context assembly", () => {
     const longA = "a".repeat(820);
     const longB = "b".repeat(820);
     const longC = `third and final user instruction here please ${"c".repeat(780)}`;
-    const runtime = makeRuntime(p, {
-      budgetTokens: 600,
-      responseReserveTokens: 0,
-      summarize: true,
-    });
+    const runtime = makeRuntime(p, smallCompactingContext);
     // restoreTodos seeds latestTodosBySession without pushing a synthetic todo_write tool
     // result into history — a seeded tool message would become the permanent "freshest tool
     // result" (protectFreshestToolResult) and block the boundary from ever advancing, since

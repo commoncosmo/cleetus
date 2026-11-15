@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DIGEST_SYSTEM_PROMPT } from "../../src/agent/context/digest";
 import { staticRouter } from "../../src/agent/router";
 import { AgentRuntime } from "../../src/agent/runtime";
 import { DEFAULT_LOOP_GUARD, type LoopGuardConfig } from "../../src/config/loop-guard";
@@ -161,12 +162,14 @@ function makeRuntime(
   loopGuard?: () => LoopGuardConfig,
   maxToolLoops: number | (() => number) = 20,
   bashTool: Tool = failingBash,
+  extraTools: Tool[] = [],
 ): AgentRuntime {
   const providers = new ProviderRegistry();
   providers.register("lm", provider);
   const tools = new ToolRegistry();
   tools.register(editFile);
   tools.register(bashTool);
+  for (const tool of extraTools) tools.register(tool);
   return new AgentRuntime({
     providers,
     tools,
@@ -180,6 +183,82 @@ function makeRuntime(
     loopGuard,
   });
 }
+
+test("an Air-style repair stops a rotation through unchanged files across batches and compaction", async () => {
+  // Ornith read the same modules in different batches, interleaved with inventory commands.
+  // No single path repeats four times in the guard's 12-call window.
+  const paths = Array.from({ length: 16 }, (_, i) => `src/module-${i}.ts`);
+  const reads = (indices: number[]) =>
+    indices.map((i) => ({
+      name: "read_file",
+      args: { path: paths[i] },
+    }));
+  const batches = [
+    reads([0, 1, 2, 3]),
+    reads([4, 5, 6, 7]),
+    reads([8, 9, 10, 11]),
+    reads([12, 13, 14, 15]),
+    [...reads([2, 4, 6, 8]), { name: "bash", args: { command: "cd src && ls -1 | sort" } }],
+    [...reads([10, 12, 14, 0]), { name: "bash", args: { command: "find src -maxdepth 1 | sort" } }],
+    reads([1, 3, 5, 7]),
+    reads([9, 11, 13, 15]),
+  ];
+  let rounds = 0;
+  let warningSeen = false;
+  const provider: Provider = {
+    listModels: async () => [{ id: "m" }],
+    embed: async () => [0],
+    async *chat(opts) {
+      if (opts.messages[0]?.content === DIGEST_SYSTEM_PROMPT) {
+        yield { type: "text-delta", text: "Earlier module contents were inspected." };
+        yield { type: "finish", reason: "stop" };
+        return;
+      }
+      warningSeen ||= opts.messages.some((msg) =>
+        msg.content.includes("Repeated inspections are returning"),
+      );
+      const batch = batches[rounds++];
+      if (!batch) {
+        yield { type: "text-delta", text: "Still looking." };
+        yield { type: "finish", reason: "stop" };
+        return;
+      }
+      for (const [i, call] of batch.entries()) {
+        yield { type: "tool-call", call: { ...call, id: `round-${rounds}-${i}` } };
+      }
+      yield { type: "finish", reason: "tool-calls" };
+    },
+  };
+  const runtime = makeRuntime(
+    provider,
+    () => DEFAULT_LOOP_GUARD,
+    Number.POSITIVE_INFINITY,
+    { ...failingBash, run: async () => ({ ok: true, output: paths.join("\n") }) },
+    [
+      {
+        name: "read_file",
+        description: "",
+        parameters: { type: "object", properties: { path: { type: "string" } } },
+        serialize: () => "read source",
+        run: async (args) => ({
+          ok: true,
+          output: `// ${(args as { path: string }).path}\n${"export const sample = true;\n".repeat(190)}`,
+        }),
+      },
+    ],
+  );
+
+  const result = await runtime.runTurn("S", "Finish the existing Scwrote site now.");
+  expect(result.stoppedReason).toBe("no_progress");
+  expect(warningSeen).toBe(true);
+  expect(rounds).toBe(6);
+  expect(log.query("S").some((event) => event.type === "compaction_end")).toBe(true);
+  const messages = runtime.getMessages("S");
+  const requested = messages.flatMap((message) => (message.toolCalls ?? []).map((call) => call.id));
+  expect(
+    messages.filter((message) => message.role === "tool").map((message) => message.toolCallId),
+  ).toEqual(requested);
+});
 
 test("repeated successful numbered probes stop with recovery advice after warning", async () => {
   const provider = new NumberedProbeProvider();
@@ -206,6 +285,52 @@ test("repeated successful numbered probes stop with recovery advice after warnin
           e.type === "notice" && (e.payload as { kind?: string }).kind === "repeated_probe_warning",
       ).length,
   ).toBe(1);
+});
+
+test("read-only package.json inspections warn and stop even when every command differs", async () => {
+  let rounds = 0;
+  let warningSeen = false;
+  const path = "scwrote-site/package.json";
+  const provider: Provider = {
+    listModels: async () => [{ id: "m" }],
+    embed: async () => [0],
+    async *chat(opts) {
+      warningSeen ||= opts.messages.some((message) =>
+        message.content.includes("Repeated inspections are returning"),
+      );
+      const n = ++rounds;
+      const commands = [
+        `head -${n} ${path}`,
+        `sed -n '1,${n}p' ${path}`,
+        `cat ${path} | head -${n}`,
+      ];
+      for (const [i, command] of commands.entries()) {
+        yield {
+          type: "tool-call",
+          call: { id: `round-${n}-${i}`, name: "bash", args: { command } },
+        };
+      }
+      yield { type: "finish", reason: "tool-calls" };
+    },
+  };
+  const bash = {
+    ...failingBash,
+    run: async () => ({ ok: true as const, output: '{"name":"scwrote-site"}' }),
+  };
+  const runtime = makeRuntime(provider, () => DEFAULT_LOOP_GUARD, 5, bash);
+  const result = await runtime.runTurn(
+    "S",
+    "Inspect scwrote-site/package.json using the different read-only commands and report what ran.",
+  );
+
+  expect(result.stoppedReason).toBe("no_progress");
+  expect(warningSeen).toBe(true);
+  expect(rounds).toBeLessThan(5);
+  expect(log.query("S").filter((event) => event.type === "notice")).toContainEqual(
+    expect.objectContaining({
+      payload: expect.objectContaining({ kind: "inspection_loop_warning" }),
+    }),
+  );
 });
 
 test("repeated edits past threshold inject ONE loop-warning and log a loop_guard notice", async () => {

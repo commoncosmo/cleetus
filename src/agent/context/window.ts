@@ -16,8 +16,7 @@ export function sumTokens(history: Message[], from: number, to: number): number 
   return t;
 }
 
-/** Index of the live turn's first message — the slice from the last user message to the
- *  end. This slice is never trimmed. Returns 0 when there is no user message. */
+/** Index of the live turn's originating user message. Returns 0 when there is no user message. */
 export function liveTurnStart(history: Message[]): number {
   for (let i = history.length - 1; i >= 0; i--) {
     if (history[i]!.role === "user" && history[i]!.turnOrigin) return i;
@@ -35,13 +34,18 @@ export function liveTurnStart(history: Message[]): number {
  * alone is large. The newest message is always kept (the tail is never empty), even if it
  * alone exceeds `recentTokens`. Never starts the tail on an orphaned `tool` result (whose
  * assistant tool-call parent would be evicted — OpenAI-compatible providers reject a leading
- * tool message). Returns 0 when everything fits. Pure.
+ * tool message). An independently reserved message adds no cost to the tail. Returns 0
+ * when everything fits. Pure.
  */
-export function computeRecentBoundary(history: Message[], recentTokens: number): number {
+export function computeRecentBoundary(
+  history: Message[],
+  recentTokens: number,
+  reservedIndex = -1,
+): number {
   let total = 0;
   let boundary = history.length;
   for (let i = history.length - 1; i >= 0; i--) {
-    const t = messageTokens(history[i]!);
+    const t = i === reservedIndex ? 0 : messageTokens(history[i]!);
     // Always keep the newest message (boundary still === history.length); after that, stop
     // once adding another message would exceed the recent-token reserve.
     if (boundary < history.length && total + t > recentTokens) break;
